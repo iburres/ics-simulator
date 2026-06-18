@@ -27,9 +27,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: 'package.json'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build workspace packages
         # Both schema and orchestrator must be compiled before tsc can resolve
@@ -51,9 +52,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: 'package.json'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Lint
         run: npm run lint
@@ -72,9 +74,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: 'package.json'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build workspace packages
         # Schema dist/ must exist so workspace import resolution works at test time.
@@ -105,9 +108,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: 'package.json'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       # Hard gate: fail only on critical CVEs.  High/moderate are reported but
       # do not block the pipeline until they have known fixes.
@@ -183,9 +187,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: 'package.json'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build workspace packages
         run: npm run build:packages
