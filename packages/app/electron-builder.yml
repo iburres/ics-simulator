@@ -1,5 +1,6 @@
 appId: com.iburres.otforge
 productName: OTForge
+executableName: OTForge
 copyright: Copyright © 2026 Ian Burres
 
 directories:
