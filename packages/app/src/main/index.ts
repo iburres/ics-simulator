@@ -3479,19 +3479,25 @@ function buildControllerModbusTags(nodeId: string, device: DeviceConfig): Record
 
   if (controller.kind === 'wellhead-controller') {
     return {
+      // divisor:10 matches server.py's x10 fixed-point convention (CONTROLLER_CHOKE_
+      // POSITION_PCT * 10 seeded into the raw register) -- FUXA's Tag.divisor scales
+      // both reads and writes, so bindings (e.g. the SCADA view's slider) see/set the
+      // real 0-100% value instead of the raw 0-1000 register value.
       [`${ns}-hr0`]: {
         id: `${ns}-hr0`,
         name: 'HR0',
         type: 'Int16',
         address: 1,
-        memaddress: MODBUS_TABLE.holdingRegister
+        memaddress: MODBUS_TABLE.holdingRegister,
+        divisor: 10
       },
       [`${ns}-hr1`]: {
         id: `${ns}-hr1`,
         name: 'HR1',
         type: 'Int16',
         address: 2,
-        memaddress: MODBUS_TABLE.holdingRegister
+        memaddress: MODBUS_TABLE.holdingRegister,
+        divisor: 10
       }
     }
   }
@@ -3707,18 +3713,211 @@ function buildLiveShape(
   }
 }
 
-/** Pump/VFD/actuator icon -- a single fillable circle, mirroring PumpSvg's body. */
+/**
+ * Wraps raw ISA-5.1 P&ID path/shape markup -- lifted directly from FUXA's own
+ * "Proc. Eng." shape library (client/src/assets/lib/svgeditor/shapes/proc-*.js, the
+ * same shapes a user sees dragging from the editor's "Proc. Eng." palette section) --
+ * in a <g transform> that scales and centers it at (cx,cy). Keeps the source path data
+ * untouched (so it's traceable back to FUXA's own files) instead of hand-recomputing
+ * every coordinate for each call site's target position/size.
+ */
+function wrapFuxaShape(
+  innerSvg: string,
+  cx: number,
+  cy: number,
+  nativeW: number,
+  nativeH: number,
+  targetSize: number
+): string {
+  const scale = targetSize / Math.max(nativeW, nativeH)
+  const w = nativeW * scale
+  const h = nativeH * scale
+  const tx = cx - w / 2
+  const ty = cy - h / 2
+  return `<g transform="translate(${tx},${ty}) scale(${scale})">${innerSvg}</g>`
+}
+
+/**
+ * FUXA's "centrifugal" pump symbol -- proc-pumps-shapes.js, native 40x40
+ * (circle body + impeller cross/wedge lines).
+ */
+function fuxaPumpSvg(fill: string, stroke: string): string {
+  return (
+    `<path d="M 40,20 A 20,20 0 0 1 20,40 20,20 0 0 1 0,20 20,20 0 0 1 20,0 20,20 0 0 1 40,20" fill="${fill}" stroke="${stroke}" stroke-width="2"/>` +
+    `<path d="M 20 0 L 20 40 M 0 20 L 20 0 L 40 20" fill="none" stroke="${stroke}" stroke-width="2"/>`
+  )
+}
+
+/**
+ * FUXA's "valvecx" symbol -- proc-general-shapes.js, native 40x32
+ * (opposed-triangle bowtie + actuator stem, used for both valve and actuator kinds).
+ */
+function fuxaValveSvg(fill: string, stroke: string): string {
+  return `<path d="M 0 0 L 20 12 L 0 24 Z M 40 0 L 20 12 L 40 24 Z M 20 12 L 32 32 L 8 32 Z" fill="${fill}" stroke="${stroke}" stroke-width="2"/>`
+}
+
+/**
+ * FUXA's "motor" symbol -- proc-general-shapes.js, native 41x41
+ * (circle + filled drive-direction triangle, the closest available match for a VFD,
+ * which drives a motor rather than being one itself).
+ */
+function fuxaMotorSvg(fill: string, stroke: string): string {
+  return (
+    `<ellipse cx="20.5" cy="20.5" rx="20" ry="20" fill="${fill}" stroke="${stroke}" stroke-width="2"/>` +
+    `<path d="M 20.5,1.5 40.5,20.75 20.5,40 Z" fill="${stroke}"/>`
+  )
+}
+
+/** Pump icon, mirroring FUXA's own "centrifugal" Proc. Eng. shape. */
 function buildPumpShape(gid: string, cx: number, cy: number, tagId: string, label: string) {
-  const svg = `<circle cx="${cx}" cy="${cy}" r="32" fill="#6e7681" stroke="#30363d" stroke-width="3"/>`
+  const svg = wrapFuxaShape(fuxaPumpSvg('#6e7681', '#30363d'), cx, cy, 40, 40, 64)
   return buildLiveShape(gid, svg, cx, cy, 64, 64, tagId, label)
 }
 
-/** Valve icon -- two opposing triangles (bowtie), mirroring ValveSvg. */
+/** VFD icon, mirroring FUXA's own "motor" Proc. Eng. shape. */
+function buildVfdShape(gid: string, cx: number, cy: number, tagId: string, label: string) {
+  const svg = wrapFuxaShape(fuxaMotorSvg('#6e7681', '#30363d'), cx, cy, 41, 41, 64)
+  return buildLiveShape(gid, svg, cx, cy, 64, 64, tagId, label)
+}
+
+/** Valve/actuator icon, mirroring FUXA's own "valvecx" Proc. Eng. shape. */
 function buildValveShape(gid: string, cx: number, cy: number, tagId: string, label: string) {
-  const svg =
-    `<polygon points="${cx - 28},${cy - 18} ${cx},${cy} ${cx - 28},${cy + 18}" fill="#6e7681" stroke="#30363d" stroke-width="2"/>` +
-    `<polygon points="${cx + 28},${cy - 18} ${cx},${cy} ${cx + 28},${cy + 18}" fill="#6e7681" stroke="#30363d" stroke-width="2"/>`
-  return buildLiveShape(gid, svg, cx, cy, 56, 36, tagId, label)
+  const svg = wrapFuxaShape(fuxaValveSvg('#6e7681', '#30363d'), cx, cy, 40, 32, 56)
+  return buildLiveShape(gid, svg, cx, cy, 56, 44.8, tagId, label)
+}
+
+/**
+ * Real interactive FUXA toggle switch (svg-ext-html_switch) bound to a binary
+ * command coil (e.g. CO0) -- unlike the live-colored status icons above (display
+ * only), clicking this actually writes to the device over Modbus. Confirmed live:
+ * FUXA's html-switch widget calls the real write path on click, unlike the Lab/Test
+ * tool's setSignalValue (local display update only, never reaches the backend --
+ * the exact bug behind the "flickers back off" report this was built to fix).
+ * svgcontent structure and property shape verified by building one in FUXA's own
+ * editor and reading back the saved project JSON -- Angular wipes and rebuilds the
+ * <label id="T-..."> placeholder at runtime regardless of what's saved there, so an
+ * empty placeholder (no pre-rendered widget internals) is sufficient and confirmed
+ * to render/function correctly when loaded fresh.
+ */
+function buildSwitchWidget(
+  gid: string,
+  cx: number,
+  cy: number,
+  tagId: string,
+  label: string
+): { svg: string; item: Record<string, unknown> } {
+  const w = 50
+  const h = 24
+  const x = cx - w / 2
+  const y = cy - h / 2
+  return {
+    svg:
+      `<g id="${gid}" type="svg-ext-html_switch" stroke="rgba(0,0,0,0)" fill="rgba(0,0,0,0)">` +
+      `<rect x="${x}" y="${y}" width="${w}" height="${h}" stroke-width="0"/>` +
+      `<foreignObject id="H-${gid}" x="${x}" y="${y}" width="${w}" height="${h}">` +
+      // HtmlSwitchComponent.prefix is the literal string 'T-HXT_', hardcoded in FUXA's
+      // own component (client/.../html-switch.component.ts), NOT derived from this
+      // gauge's id -- it walks the DOM for an element id *starting with* that exact
+      // string to know where to mount the real Angular switch. Using our own gid here
+      // (e.g. "T-otf-scada-...") would never match and the widget silently never
+      // initializes -- confirmed live: that's exactly what happened before this fix.
+      `<label id="T-HXT_${gid}" class="md-switch" style="width:calc(100% - 6px);height:calc(100% - 6px);"></label>` +
+      `</foreignObject></g>`,
+    item: {
+      id: gid,
+      type: 'svg-ext-html_switch',
+      name: label,
+      label,
+      property: {
+        variableId: tagId,
+        events: [],
+        actions: [],
+        options: {
+          offValue: 0,
+          onValue: 1,
+          offBackground: '#3d444d',
+          onBackground: '#3d444d',
+          offText: 'OFF',
+          onText: 'ON',
+          offSliderColor: '#8b949e',
+          onSliderColor: '#3fb950',
+          offTextColor: '#fff',
+          onTextColor: '#fff',
+          fontSize: 11,
+          fontFamily: '',
+          radius: 4,
+          height: h
+        }
+      },
+      hide: false,
+      lock: false
+    }
+  }
+}
+
+/**
+ * Real interactive FUXA horizontal slider (svg-ext-html_slider) bound to an analog
+ * setpoint register (e.g. wellhead-controller's HR0 choke position) -- same
+ * verified-live svgcontent/property structure as buildSwitchWidget. 220x90 (much
+ * bigger than the switch's 50x24) because SliderComponent's ngx-nouislider wrapper has
+ * a fixed, non-configurable 40px margin on every side -- confirmed live: a smaller box
+ * (120x36) left only a ~40px-wide sliver for the actual track, this size leaves a
+ * reasonably-sized ~140px track with its 0/50/100 pip labels visible above/below.
+ */
+function buildSliderWidget(
+  gid: string,
+  cx: number,
+  cy: number,
+  tagId: string,
+  label: string,
+  min: number,
+  max: number
+): { svg: string; item: Record<string, unknown> } {
+  const w = 220
+  const h = 90
+  const x = cx - w / 2
+  const y = cy - h / 2
+  return {
+    svg:
+      `<g id="${gid}" type="svg-ext-html_slider" stroke="#000000" fill="#ffffff">` +
+      `<rect x="${x}" y="${y}" width="${w}" height="${h}" stroke-width="0"/>` +
+      `<foreignObject id="H-${gid}" x="${x}" y="${y}" width="${w}" height="${h}">` +
+      // SliderComponent.prefix is the literal string 'D-SLI_', same caveat as
+      // buildSwitchWidget's 'T-HXT_' above -- must be hardcoded, not derived from gid.
+      `<div id="D-SLI_${gid}" style="width:100%;height:100%;"></div>` +
+      `</foreignObject></g>`,
+    item: {
+      id: gid,
+      type: 'svg-ext-html_slider',
+      name: label,
+      label,
+      property: {
+        variableId: tagId,
+        events: [],
+        actions: [],
+        options: {
+          orientation: 'horizontal',
+          direction: 'ltr',
+          fontFamily: 'Sans-serif',
+          shape: { baseColor: '#3d444d', connectColor: '#388bfd', handleColor: '#58a6ff' },
+          marker: {
+            color: '#8b949e',
+            subWidth: 4,
+            subHeight: 1,
+            fontSize: 11,
+            divHeight: 2,
+            divWidth: 8
+          },
+          range: { min, max },
+          step: 1,
+          pips: { mode: 'values', values: [min, Math.round((min + max) / 2), max], density: 4 },
+          tooltip: { type: 'none', decimals: 0, background: '#fff', color: '#000', fontSize: 11 }
+        }
+      },
+      hide: false,
+      lock: false
+    }
+  }
 }
 
 /**
@@ -3751,8 +3950,11 @@ function buildTankSvg(cx: number, cy: number): string {
 
 /**
  * Generates the auto-generated SCADA Overview FUXA view: a P&ID-style diagram scoped
- * to OT-zone devices only, with pump/valve icons colored live from their DI0 status
- * tag and pipe runs connecting them per the canvas topology.
+ * to OT-zone devices only, using FUXA's own Proc. Eng. icons (pump/motor/valve) colored
+ * live from each device's DI0 status tag, pipe runs connecting them per the canvas
+ * topology, and a real interactive control under each one -- a toggle switch bound to
+ * CO0 for pump/vfd/actuator/valve, a slider bound to HR0 (choke position) for
+ * wellhead-controller -- so the view is directly operable, not just a status display.
  *
  * @param topology - OT-zone nodes/edges from getOtZoneTopology().
  * @returns Plain object matching FUXA's view schema, ready for postView().
@@ -3797,15 +3999,19 @@ function buildScadaOverviewView(topology: OtZoneTopology): unknown {
     const kind = device.controller?.kind
     let labelY = pos.y + 42
 
-    if (device.category === 'smart-controller' && kind === 'valve') {
+    if (device.category === 'smart-controller' && (kind === 'valve' || kind === 'actuator')) {
+      // Actuator reclassified onto the valve icon, not the pump/motor one -- both are
+      // position-control devices (open/closed, extended/retracted), not flow-moving
+      // rotating equipment like a pump or VFD-driven motor.
       const { svg, item } = buildValveShape(gid, pos.x, pos.y, `${ns}-di0`, label)
       svgParts.push(svg)
       items[gid] = item
-    } else if (
-      device.category === 'smart-controller' &&
-      (kind === 'pump' || kind === 'vfd' || kind === 'actuator')
-    ) {
+    } else if (device.category === 'smart-controller' && kind === 'pump') {
       const { svg, item } = buildPumpShape(gid, pos.x, pos.y, `${ns}-di0`, label)
+      svgParts.push(svg)
+      items[gid] = item
+    } else if (device.category === 'smart-controller' && kind === 'vfd') {
+      const { svg, item } = buildVfdShape(gid, pos.x, pos.y, `${ns}-di0`, label)
       svgParts.push(svg)
       items[gid] = item
     } else if (device.category === 'process-unit') {
@@ -3822,6 +4028,37 @@ function buildScadaOverviewView(topology: OtZoneTopology): unknown {
     svgParts.push(
       `<text x="${pos.x}" y="${labelY}" font-size="12" fill="#e6edf3" text-anchor="middle">${label}</text>`
     )
+
+    // Real write-capable control under the label. pump/vfd/actuator/valve share a CO0
+    // command coil, so they all get the same toggle switch; wellhead-controller has no
+    // coil at all (HR0/HR1 are direct setpoints), so it gets a slider on HR0 (choke
+    // position %) instead. No control for devices with nothing writable wired up yet
+    // (process-unit, sensors, PLC/RTU/etc) -- matches buildScadaAlarms' same scoping.
+    if (device.category === 'smart-controller' && kind && kind !== 'wellhead-controller') {
+      const { svg, item } = buildSwitchWidget(
+        `${gid}-ctl`,
+        pos.x,
+        labelY + 26,
+        `${ns}-co0`,
+        `${label} command`
+      )
+      svgParts.push(svg)
+      items[`${gid}-ctl`] = item
+    } else if (device.category === 'smart-controller' && kind === 'wellhead-controller') {
+      // Slider is 90px tall (see buildSliderWidget) -- offset by half that plus a
+      // small gap so its top edge clears the label above it instead of overlapping.
+      const { svg, item } = buildSliderWidget(
+        `${gid}-ctl`,
+        pos.x,
+        labelY + 50,
+        `${ns}-hr0`,
+        `${label} choke %`,
+        0,
+        100
+      )
+      svgParts.push(svg)
+      items[`${gid}-ctl`] = item
+    }
   }
 
   return {
