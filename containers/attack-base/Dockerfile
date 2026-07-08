@@ -1,3 +1,25 @@
+# ── Build stage: compile the IEC 61850 MMS client against libiec61850 ────────
+# Same client used by the engineering-workstation image (legitimate ops) and
+# here (unauthorized ops) — MMS is a full ISO stack (ACSE/Presentation/Session
+# over BER-encoded ASN.1), not a reasonable one-file hand-rolled protocol
+# implementation the way the Modbus/DNP3 attack scripts below are. Building it
+# from source here (rather than pulling a published pyiec61850 package, which
+# doesn't exist) keeps this self-contained the same way containers/iec61850
+# builds its own server from source.
+FROM debian:bookworm-slim AS iec61850-build
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git make gcc g++ build-essential ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN git clone --depth 1 https://github.com/mz-automation/libiec61850.git
+COPY iec61850-client.c /src/libiec61850/examples/otforge-client/client.c
+COPY iec61850-client.Makefile /src/libiec61850/examples/otforge-client/Makefile
+WORKDIR /src/libiec61850
+RUN make -j"$(nproc)"
+WORKDIR /src/libiec61850/examples/otforge-client
+RUN make
+
 FROM kalilinux/kali-rolling
 
 # Keep DEBIAN_FRONTEND noninteractive only during build — unset at runtime
@@ -145,6 +167,11 @@ RUN mkdir -p /root/.config/tigervnc \
 # that would confuse Xfce4 about which bus to talk to.
 RUN printf '#!/bin/bash\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec dbus-launch --exit-with-session startxfce4\n' \
     > /root/.config/tigervnc/xstartup && chmod +x /root/.config/tigervnc/xstartup
+
+# IEC 61850 MMS client — compiled binary only, no build toolchain in the final image.
+COPY --from=iec61850-build \
+    /src/libiec61850/examples/otforge-client/iec61850-client \
+    /opt/otforge/iec61850-client
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

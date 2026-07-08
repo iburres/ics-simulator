@@ -1,3 +1,24 @@
+# ── Build stage: compile the IEC 61850 MMS client against libiec61850 ────────
+# Same client copied into the attack-machine image. MMS is a full ISO stack
+# (ACSE/Presentation/Session over BER-encoded ASN.1), not a reasonable
+# one-file hand-rolled implementation the way the Modbus/DNP3 scripts below
+# are, so this workstation talks to the real IED using the same compiled
+# client the "attack" uses — the only difference is which network the caller
+# runs from.
+FROM debian:bookworm-slim AS iec61850-build
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git make gcc g++ build-essential ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN git clone --depth 1 https://github.com/mz-automation/libiec61850.git
+COPY iec61850-client.c /src/libiec61850/examples/otforge-client/client.c
+COPY iec61850-client.Makefile /src/libiec61850/examples/otforge-client/Makefile
+WORKDIR /src/libiec61850
+RUN make -j"$(nproc)"
+WORKDIR /src/libiec61850/examples/otforge-client
+RUN make
+
 FROM ubuntu:22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -136,6 +157,11 @@ RUN pip3 install --no-cache-dir websockify \
 # Pre-placed on the Desktop so students can run them without typing in noVNC.
 COPY scripts/ /root/Desktop/Protocols/
 RUN chmod +x /root/Desktop/Protocols/*.py 2>/dev/null || true
+
+# IEC 61850 MMS client — compiled binary only, no build toolchain in the final image.
+COPY --from=iec61850-build \
+    /src/libiec61850/examples/otforge-client/iec61850-client \
+    /opt/otforge/iec61850-client
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

