@@ -1,0 +1,428 @@
+{
+  "meta": {
+    "formatVersion": "1.0",
+    "name": "ICS Lab 04 — IEC 61850 Substation: MMS Control and the Detection Gap",
+    "description": "Students take the role of a protection & control engineer at Meridian Electric's Substation 12, a feeder-bay automation site built on IEC 61850. An attacker who has reached the substation LAN sends an unauthorized MMS control command that trips the feeder breaker (XCBR1) — and nothing alerts, because unlike Modbus and DNP3, Suricata has no native IEC 61850/MMS application-layer decoder. Students first operate the breaker legitimately from the engineering workstation, then discover the detection gap, then build a content-based Suricata signature (no dnp3_func-style keyword exists for this protocol). Escalating the alert to a reject rule demonstrates a genuine limitation of tap-based IPS: it fires and logs correctly, but cannot reliably outrace a single fast packet between two containers on the same Docker bridge — a real, verified finding that becomes the lab's second lesson, about the difference between inline and passive-tap network defenses. Developed for ICS/SCADA cybersecurity courses at UTSA.",
+    "sector": "power-distribution",
+    "author": "Ian Burres — UTSA",
+    "createdAt": "2026-07-08T00:00:00.000Z",
+    "updatedAt": "2026-07-08T00:00:00.000Z",
+    "appVersion": "0.13.0",
+    "locked": false,
+    "brief": "## Mission: Protect Substation 12's Feeder Bay\n\nMeridian Electric operates Substation 12, a distribution substation using **IEC 61850** for feeder-bay protection and automation. The bay's IED (Intelligent Electronic Device) exposes live measurements (power, voltage, current, frequency) and a remotely operable circuit breaker (XCBR1) over **MMS** (Manufacturing Message Specification, TCP port 102).\n\nAn attacker has reached the substation LAN and is sending an unauthorized MMS **Operate** command to XCBR1 — tripping the feeder breaker and de-energizing the bay without authorization.\n\nAs the protection & control engineer on duty, your mission is to:\n\n1. Operate the breaker legitimately from the Engineering Workstation so you understand what normal MMS control traffic looks like.\n2. Discover that the attack produces **zero alerts** — Suricata has no built-in decoder for this protocol, unlike Modbus or DNP3.\n3. Write a **custom content-based Suricata rule** (no protocol-aware keyword exists for MMS the way `dnp3_func` does for DNP3) and load it through the OTForge IDS/IPS Panel.\n4. Escalate the rule to a **reject** rule — and discover firsthand why a passive-tap IPS sensor can detect and log an attack in real time without necessarily being able to prevent it.\n\n**Rules of Engagement:** This is an isolated Docker lab environment. All traffic stays on your local machine.",
+    "requirements": {
+      "estimatedRamMb": 1536,
+      "estimatedCpuCores": 2,
+      "containerCount": 6
+    },
+    "tutorialSteps": [
+      {
+        "id": "step-00-welcome",
+        "title": "Welcome to Lab 04 — IEC 61850 Substation Automation",
+        "body": "## Learning Objectives\n\nBy the end of this lab you will be able to:\n\n- Describe the role of **IEC 61850** in substation automation and how it differs architecturally from Modbus/DNP3\n- Explain the **MMS** (Manufacturing Message Specification) client-server protocol and why it has no built-in authentication in this deployment\n- Identify the key parts of a substation IED's data model: **logical device**, **logical node** (MMXU = metering, XCBR = circuit breaker), **functional constraints** (MX, ST, CO, CF)\n- Explain **why Suricata cannot natively decode MMS** the way it decodes Modbus and DNP3, and what that means for detection coverage\n- Write a **content-based** Suricata rule for a protocol with no application-layer keyword support\n- Escalate that rule from **alert** (IDS) to **reject** (IPS), and explain why a passive network-tap sensor can fire that rule correctly and still fail to prevent a fast, single-packet attack\n\n---\n\n## IEC 61850 — Why Substations Use It\n\nIEC 61850 is the dominant international standard for substation automation, covering protection, control, and monitoring for electrical power generation and distribution substations. Unlike Modbus (generic register read/write) or DNP3 (point-based SCADA telemetry), IEC 61850 models the substation as an object hierarchy that mirrors the real equipment:\n\n```\nIED \"OTForgeIED\"\n  └─ Logical Device \"BAY\"\n       ├─ LLN0 / LPHD1        (device health — mandatory logical nodes)\n       ├─ MMXU1                (metering: TotW, TotVAr, Hz, PhV, A)\n       └─ XCBR1                (circuit breaker: Pos — open/close status + control)\n```\n\nEach data object belongs to a **Functional Constraint (FC)** that determines how it's accessed:\n\n| FC | Meaning | Example in this lab |\n|---|---|---|\n| **MX** | Measurands (analog values) | MMXU1.TotW.mag.f |\n| **ST** | Status (digital state) | XCBR1.Pos.stVal |\n| **CO** | Control | XCBR1.Pos (Oper/Cancel/SBOw) |\n| **CF** | Configuration | XCBR1.Pos.ctlModel |\n\n**This lab's IED model is deliberately scoped to MMS only.** IEC 61850 also defines **GOOSE** (peer-to-peer trip/interlock messaging) and **Sampled Values** (high-rate analog streaming) — both layer-2 Ethernet multicast protocols that don't route across Docker bridge networks the way TCP/IP traffic does, so they are out of scope here.\n\n---\n\n## MMS — The Transport Underneath\n\nMMS (ISO 9506) is a full **ISO OSI-stack** protocol: ACSE (association control) and Presentation/Session layers sit on top of ISO Transport (COTP over TPKT), carrying ASN.1 **BER-encoded** requests and responses on **TCP port 102**. This is architecturally heavier than Modbus (a flat register protocol) or DNP3 (link/transport/application over raw TCP) — and, like both of those, **it has no authentication in this deployment**. IEC 62351-8/-4 defines certificate-based MMS security, but it is rarely deployed in the field, which is exactly what makes this lab's attack possible.\n\n**Click Run Simulation (blue play button) to start all containers before clicking Next.**",
+        "successCheck": "Review the objectives and the data-model diagram above. If anything is unclear, re-read the relevant section before continuing. Click Run Simulation in the toolbar and wait for the status indicator to show all containers running."
+      },
+      {
+        "id": "step-01-explore",
+        "title": "Step 1 — Explore Substation 12",
+        "body": "## The Substation 12 Network\n\nMeridian Electric's Substation 12 automates a single feeder bay:\n\n- **IED-1 (Feeder Bay 12)** — the substation IED. Models logical device `BAY` with `MMXU1` (live measurements) and `XCBR1` (the feeder breaker). Serves MMS on TCP 102. **This is the attack target.**\n\nThe **SCADA Master** and **Engineering Workstation** at the Control zone are the only authorized MMS clients. In real operation, the SCADA master polls MMXU1 continuously for display on the HMI, and the engineering workstation is used for occasional breaker operation and IED configuration.\n\n---\n\n## Network Zones\n\nSwitch to the **OT Process (L0–L2)** layer tab in OTForge to see the substation LAN, then switch to the **Plant DMZ (L3.5)** layer tab to see the Suricata IDS/IPS Sensor. The zones are laid out as follows:\n\n| Zone | Subnet | Purpose |\n|---|---|---|\n| OT Field | 10.200.10.0/24 | Substation switch, IED-1 |\n| Control | 10.200.20.0/24 | SCADA master, historian, HMI, engineering workstation |\n| Plant DMZ | 10.200.30.0/24 | Firewall, IDS/IPS sensor |\n| Attacker | 10.200.60.0/24 | Kali Linux (the threat actor) |\n\nNote the **IDS/IPS Sensor** node in the Plant DMZ zone — you will configure it starting in Step 7.",
+        "successCheck": "You can locate IED-1 on the OT Process layer and the IDS/IPS Sensor on the Plant DMZ layer. All containers are running (status indicator green). Proceed to operate the breaker legitimately."
+      },
+      {
+        "id": "step-02-legit-read",
+        "title": "Step 2 — Read Live Measurements (Legitimate MMS Client)",
+        "body": "## Reading MMXU1 from the Engineering Workstation\n\n1. Click the **Engineering Workstation** button in the toolbar to open its terminal.\n2. Run:\n```\npython3 /root/Desktop/Protocols/iec61850_read.py {{ied-1.ip}}\n```\n\nThis performs an MMS **Read** request (FC=MX) against each measurement in `MMXU1`, plus an FC=ST read of `XCBR1.Pos.stVal` (breaker status). You should see something like:\n\n```\n[iec61850-client] MMXU1 measurements:\n  TotW     4035000.00\n  TotVAr   821000.00\n  Hz       60.01\n  PhV.A    13828.00\n  A.A      205.60\n[iec61850-client] XCBR1.Pos.stVal = CLOSED (code=1, mmsType=3)\n```\n\nThese values drift slightly each time you poll (the IED simulates a live 13.8 kV feeder with realistic wobble) — that's expected.\n\n**Why does this script shell out to a compiled client instead of a pure-Python implementation** like the Modbus/DNP3 scripts elsewhere in this toolkit? MMS's ASN.1/BER encoding over a full ISO session/presentation/ACSE stack is not a reasonable one-file protocol implementation. The script calls a small C client built against **libiec61850** — the same open-source stack used to build the IED server itself.",
+        "command": "python3 /root/Desktop/Protocols/iec61850_read.py {{ied-1.ip}}",
+        "successCheck": "The workstation terminal shows MMXU1 measurements (TotW, TotVAr, Hz, PhV.A, A.A) and XCBR1.Pos.stVal = CLOSED. Proceed to operate the breaker."
+      },
+      {
+        "id": "step-03-legit-control",
+        "title": "Step 3 — Operate the Breaker (Legitimate Control)",
+        "body": "## The Control Model\n\n`XCBR1.Pos` is a **double-point controllable** data object (`CDC_DPC`) configured with control model **direct-with-normal-security** — meaning a client can send a single **Operate** request with no separate Select step. (IEC 61850 also supports select-before-operate for higher-consequence controls; this lab uses direct operate to keep the control flow easy to observe, and — as you'll see in Step 5 — it's also exactly what makes the attack simple.)\n\n## Tripping and Re-closing IED-1's Breaker\n\n1. In the Engineering Workstation terminal, trip the breaker:\n```\npython3 /root/Desktop/Protocols/iec61850_control.py {{ied-1.ip}} open\n```\nYou should see `Operate OPEN/TRIP -> accepted`.\n\n2. Confirm the state changed:\n```\npython3 /root/Desktop/Protocols/iec61850_read.py {{ied-1.ip}}\n```\n`XCBR1.Pos.stVal` should now read `OPEN (code=2, ...)`.\n\n3. Re-close it to restore normal feeder operation:\n```\npython3 /root/Desktop/Protocols/iec61850_control.py {{ied-1.ip}} close\n```\n\nThis is exactly the client-server exchange (an MMS **Write** to `XCBR1$CO$Pos$Oper`) that the attacker will replay in Step 5 — from an unauthorized source, with no credentials required.",
+        "command": "python3 /root/Desktop/Protocols/iec61850_control.py {{ied-1.ip}} open",
+        "successCheck": "The control script reported the operate as accepted, and a follow-up read confirmed XCBR1.Pos.stVal changed to OPEN, then back to CLOSED after re-closing. Proceed to check the Suricata baseline."
+      },
+      {
+        "id": "step-04-suricata-baseline",
+        "title": "Step 4 — Check the Suricata Baseline",
+        "body": "## Open the Monitor Panel\n\n1. Click the **Monitor** button in the OTForge toolbar.\n2. Switch to the **Suricata** filter tab.\n\nYou should see **no alerts** — not even for the legitimate reads and breaker operation you just performed in Steps 2–3. That much would be expected either way (normal traffic shouldn't alert).\n\n---\n\n## The Real Question: Is Anything Watching Port 102 At All?\n\nOTForge's Suricata sensor has **application-layer protocol parsers enabled only for Modbus (port 502) and DNP3 (port 20000)**. There is no `mms` or `iec61850` app-layer protocol in this Suricata build — the project doesn't ship a native decoder for it, unlike the mature Modbus/DNP3 support you saw in Labs 01–03.\n\nThat means:\n- There is **no pre-loaded rule at all** for port 102 in `ics-rules.rules` — not even a naive byte-matching one like the DNP3 rule (SID 9000010) you saw in Lab 03.\n- Suricata cannot use a protocol-aware keyword like `dnp3_func` for MMS, because there is no MMS parser to expose one.\n\n**Keep this in mind as you run the attack in the next step: nothing is watching yet.**",
+        "successCheck": "You checked the Monitor Suricata tab and confirmed there are no alerts for any traffic so far, and you understand that no rule exists for port 102 at all — not even a naive one. Proceed to run the attack."
+      },
+      {
+        "id": "step-05-attack",
+        "title": "Step 5 — Execute the Unauthorized MMS Control Attack",
+        "body": "## Attack Scenario\n\nThe attacker has already achieved a foothold on the substation LAN through a misconfigured firewall rule. Unlike the DNP3 attack in Lab 03, there's no need to guess a function code or outstation address — MMS's Operate service is well-documented and this specific IED's object model (`XCBR1$CO$Pos$Oper`) is discoverable by simply reading the IED's name list, which MMS also permits without authentication.\n\n**This is not a protocol exploit.** It's the same client Operate request you sent in Step 3 — a well-formed MMS control command — just sent from an unauthorized host instead of the engineering workstation.\n\n---\n\n## Running the Attack\n\n1. Click the **⚔ Kali Terminal** button in the OTForge toolbar.\n2. Run the attack script:\n```\npython3 /root/Desktop/Attack_Scripts/iec61850_attack.py {{ied-1.ip}}\n```\n\nThe script connects to IED-1 on TCP 102 and sends an Operate request for `XCBR1.Pos` with `ctlVal=false` (open/trip) — tripping the feeder breaker.\n\n---\n\n## Watch the Canvas\n\nWhile the attack runs, switch to the **Plant DMZ (L3.5)** layer tab — this is where the **Suricata IDS/IPS Sensor** node lives. Watch for a red **ATK** badge on the sensor node and other Plant DMZ nodes — this is how OTForge surfaces live attacker-zone traffic on the canvas, regardless of whether any rule fires.",
+        "command": "python3 /root/Desktop/Attack_Scripts/iec61850_attack.py {{ied-1.ip}}",
+        "successCheck": "The attack script reported 'Operate OPEN/TRIP -> accepted'. Proceed to check whether Suricata noticed."
+      },
+      {
+        "id": "step-06-detection-gap",
+        "title": "Step 6 — Confirm the Detection Gap",
+        "body": "## Check the Monitor\n\n1. Open **Monitor → Suricata**.\n2. You should see **no alert at all** — the breaker trip you just caused is invisible to the sensor.\n\nCompare this to Lab 03: there, even the naive raw-byte DNP3 rule (SID 9000010) caught the attack — noisily, and for the wrong reasons, but it caught it. Here, **nothing exists to catch, because nothing exists that understands this protocol.**\n\n---\n\n## Why This Happens in the Real World\n\nThis is a genuine, current limitation, not a contrived gap for this lab: IEC 61850/MMS is architecturally more complex to parse than Modbus or DNP3 (a full ISO session/presentation/ACSE stack with ASN.1 BER encoding), and mainstream open-source IDS engines have historically prioritized the simpler, more widely deployed legacy SCADA protocols. Newer or less common ICS protocols routinely ship ahead of their detection tooling — which means the security team, not the vendor, has to build the first signature.\n\n**Confirm the physical impact:** run a read from the workstation to see the breaker is actually open.\n```\npython3 /root/Desktop/Protocols/iec61850_read.py {{ied-1.ip}}\n```\n\n**Your task for the rest of this lab:** build that first signature yourself, using content-based matching — since no `dnp3_func`-style application keyword is available for this protocol.",
+        "command": "python3 /root/Desktop/Protocols/iec61850_read.py {{ied-1.ip}}",
+        "successCheck": "The Monitor Suricata tab shows zero alerts despite the breaker trip having succeeded (confirmed via the read showing XCBR1.Pos.stVal = OPEN). You understand this reflects Suricata's real lack of an MMS decoder, not a contrived gap. Proceed to learn how to write a content-based rule for this protocol."
+      },
+      {
+        "id": "step-07-rule-anatomy",
+        "title": "Step 7 — Content-Based Detection for a Protocol With No Native Parser",
+        "body": "## Why Content Matching, Not a Protocol Keyword\n\nIn Lab 03 you used `dnp3_func:3` — a keyword Suricata can offer because it has a real DNP3 application-layer parser. No equivalent exists for MMS here, so detection has to fall back to matching **raw bytes** in the TCP payload, the same technique behind the very first (imprecise) DNP3 rule in Lab 03 (SID 9000010).\n\n## What's Actually in the Packet\n\nMMS encodes object references — like `XCBR1$CO$Pos` (Logical Node `XCBR1`, Functional Constraint `CO`, Data Object `Pos`) — as literal **ASCII strings** inside the ASN.1 BER structure. BER doesn't obscure string data; it just length-prefixes it. That means the exact plaintext object path you're trying to protect shows up verbatim on the wire — a real, verifiable finding from packet-capturing this lab's own attack traffic, and a nice illustration of why IEC 61850 without IEC 62351 transport security leaks its entire addressing scheme to anyone sniffing the LAN.\n\n---\n\n## The Rule You Will Write\n\n```\nalert tcp 10.200.60.0/24 any -> 10.200.10.0/24 102\n    (msg:\"LAB04-ALERT Unauthorized IEC 61850 MMS control operate on XCBR1.Pos\";\n     flow:to_server,established;\n     content:\"XCBR1$CO$Pos\";\n     classtype:attempted-admin;\n     sid:9100003; rev:1;)\n```\n\n**Field-by-field:**\n\n- **`alert`** — action: log and pass (IDS mode). Later you'll add a second, differently-scoped rule for prevention.\n- **`tcp ... -> ... 102`** — plain TCP, not an app-layer protocol keyword like `dnp3` — Suricata has no `mms` keyword to switch to.\n- **`10.200.60.0/24 any -> 10.200.10.0/24 102`** — scoped to the attacker subnet only, the same way Lab 03's precise DNP3 rule was. This matters even more here than it did there: your legitimate Engineering Workstation traffic (Steps 2–3) uses this exact same MMS control sequence, so a rule that doesn't restrict the source (e.g. `$HOME_NET -> $HOME_NET`) would alert on — and, in the next step, could even disrupt — normal operator activity.\n- **`flow:to_server,established`** — only match the direction from client to server on an established TCP session (the request, not the IED's reply).\n- **`content:\"XCBR1$CO$Pos\"`** — literal ASCII byte match. This is precise for *this* IED's specific control point; a more general rule for a real multi-IED substation would need one signature per protected control point, or a broader pattern traded off against more false positives.\n- **`classtype:attempted-admin`** — same category Lab 03 used for the precise DNP3 rule; an unauthorized control/administrative action attempt.\n- **`sid:9100003`** — a fresh SID (Lab 03 used 9100001–9100002; use 9100003+ here to avoid collisions if you have both labs' custom rules saved anywhere).",
+        "successCheck": "You can explain why MMS detection requires content matching instead of a protocol-aware keyword, and you understand that the literal object-reference string appears in cleartext in the BER-encoded PDU. Proceed to load this rule."
+      },
+      {
+        "id": "step-08-write-alert",
+        "title": "Step 8 — Write the Alert Rule in the IDS/IPS Panel",
+        "body": "## Loading the Rule\n\n1. Click the **IDS/IPS Sensor** node on the canvas (Plant DMZ zone).\n2. In the **Properties Panel**, scroll to the **Custom Suricata Rules** textarea.\n3. Type or paste:\n```\nalert tcp 10.200.60.0/24 any -> 10.200.10.0/24 102 (msg:\"LAB04-ALERT Unauthorized IEC 61850 MMS control operate on XCBR1.Pos\"; flow:to_server,established; content:\"XCBR1$CO$Pos\"; classtype:attempted-admin; sid:9100003; rev:1;)\n```\n4. Click **Save**.\n\n---\n\n## Reloading the Simulation\n\nCustom rules are read by Suricata at container startup.\n\n5. Click **Stop Simulation**, wait for all containers to stop.\n6. Click **Run Simulation** to restart with the new rule loaded.",
+        "successCheck": "The Custom Rules textarea shows your alert rule. You saved it, then stopped and restarted the simulation, and all containers are running again. Proceed to re-run the attack and verify detection."
+      },
+      {
+        "id": "step-09-test-alert",
+        "title": "Step 9 — Test the Alert Rule",
+        "body": "## Re-Run the Attack\n\n1. Click the **⚔ Kali Terminal** button.\n2. Run:\n```\npython3 /root/Desktop/Attack_Scripts/iec61850_attack.py {{ied-1.ip}} --close\n```\n(Using `--close` this time so you can tell this attempt apart from Step 5's trip in the logs, and so the breaker ends this step CLOSED again.)\n\n---\n\n## Verify Your Rule Fired\n\n3. Open **Monitor → Suricata**.\n4. You should now see: **SID 9100003 — `LAB04-ALERT Unauthorized IEC 61850 MMS control operate on XCBR1.Pos`**\n\nUnlike Step 5, this time the attack didn't go unnoticed. But notice: **the command still reached the IED.** The breaker state still changed. Detection without prevention — the same limitation you saw with IDS mode in Lab 03. The next step converts this into a live block.",
+        "command": "python3 /root/Desktop/Attack_Scripts/iec61850_attack.py {{ied-1.ip}} --close",
+        "successCheck": "Monitor Suricata tab shows SID 9100003 firing with your message. The attack still succeeded (the control command was delivered) — confirming IDS mode detects but does not block. Proceed to add the IPS reject rule."
+      },
+      {
+        "id": "step-10-write-reject",
+        "title": "Step 10 — Attempt to Upgrade to IPS: Write a Reject Rule",
+        "body": "## Same Idea as Lab 03 — With a Catch\n\nIn Lab 03, converting from IDS to IPS was just changing `alert` to `reject`. Try the same thing here — but pay close attention to the result in the next step, because this protocol exposes a limitation of OTForge's Suricata sensor that DNP3's slower, multi-round-trip attack in Lab 03 didn't surface.\n\n**Add this reject rule** (on a new line after your alert rule):\n```\nreject tcp 10.200.60.0/24 any -> 10.200.10.0/24 102 (msg:\"LAB04-BLOCK Unauthorized MMS connection attempt to substation LAN\"; flags:S; classtype:attempted-admin; sid:9100004; rev:1;)\n```\n\nNotice this rule is deliberately **different in shape** from your alert rule: instead of matching content deep inside an established session, it matches `flags:S` — the very first packet (the TCP SYN) of any new connection attempt from the attacker subnet to port 102. You'll see why in Step 11.\n\n---\n\n## Loading the Rule\n\n1. Click the **IDS/IPS Sensor** node.\n2. In **Custom Rules**, add the reject rule above on a new line after your existing alert rule.\n3. Click **Save**.\n4. Click **Stop Simulation**, wait for all containers to stop, then **Run Simulation** to reload with both rules active.",
+        "successCheck": "Your Custom Rules textarea contains both the alert rule (sid:9100003) and the SYN-based reject rule (sid:9100004). You restarted the simulation and all containers are running again. Proceed to run the attack and observe closely."
+      },
+      {
+        "id": "step-11-confirm-block",
+        "title": "Step 11 — Why the \"Block\" Doesn't Fully Block, and What That Teaches You",
+        "body": "## Run the Attack Again\n\n1. Click the **⚔ Kali Terminal** button.\n2. Run:\n```\npython3 /root/Desktop/Attack_Scripts/iec61850_attack.py {{ied-1.ip}}\n```\n\n**Expected (and correct) result: the script still reports `Operate OPEN/TRIP -> accepted`,** and a follow-up read from the workstation still shows `XCBR1.Pos.stVal = OPEN`. Check **Monitor → Suricata** — both SID 9100003 (alert) and SID 9100004 (`LAB04-BLOCK`, tagged `[wDrop]`) fired. The rule worked exactly as written. **The attack still succeeded anyway.**\n\nThis is not a mistake in your rule. It's a real, verifiable property of this platform's IDS/IPS sensor, confirmed by testing this exact lab end-to-end during development: OTForge's Suricata container runs in **passive tap mode** (`host-mode` unset → \"sniffer-only\" — you can see this in the Suricata container's own startup log), monitoring a *copy* of traffic captured off the Docker bridge, not sitting inline in the actual forwarding path. When `reject` fires, Suricata injects a TCP RST — a genuine, valid action — but it is racing against the real packet, which the Docker bridge (a real, fast, in-kernel switch) has already delivered to IED-1 by the time Suricata's monitor-detect-inject round trip completes. On a local, low-latency link between two containers, that race is not a fair fight, and Suricata loses it consistently, regardless of whether the rule matches the initial SYN (as this one does) or deep content mid-stream (as an earlier draft of this rule did, tested and confirmed equally ineffective).\n\n---\n\n## Why This Matters More Than a Clean \"It Worked\" Ending Would\n\nThis is exactly the situation a real security engineer runs into with **any out-of-band, mirror-port-based IPS** — a common deployment model in OT networks precisely because operators are (rightly) nervous about putting an inline device in the path of safety-critical traffic. A tap-based sensor can reliably **detect** and **log** in real time, and it can meaningfully disrupt an attacker's *follow-up* traffic or a *slower, multi-step* attack (which is why Lab 03's DNP3 attack — with its separate link-status probe before the Direct Operate — behaves differently). But it cannot guarantee prevention of a single fast packet on a low-latency LAN, because by design it only ever sees a copy.\n\n**Genuine prevention requires being inline** — an actual bridge/router in the traffic's physical path (which is architecturally why a real firewall, not deep packet inspection, is usually the first line of defense for connection-level blocking), or protocol-level authentication (IEC 62351) that makes the attacker's request fail validation at the IED itself regardless of network timing.\n\n---\n\n## Security Reflection\n\n| Stage | What happened | Attack result |\n|---|---|---|\n| No rule (Steps 5–6) | Nothing fired — no MMS decoder exists | Attack SUCCEEDED, completely undetected |\n| Alert rule (Step 9) | SID 9100003 fired on content match | Attack SUCCEEDED, detected |\n| Reject rule (Step 11) | SID 9100003 + 9100004 (`[wDrop]`) both fired | Attack STILL SUCCEEDED, detected + logged as an attempted block |\n\n**The protocol weakness remains, and so does the architecture's limitation.** MMS in this deployment has no authentication — any host reaching TCP 102 can attempt an Operate request — and a passive-tap IPS cannot fully compensate for that on a fast LAN. Real prevention for this scenario would need to come from somewhere the traffic cannot outrace the control: an inline network device, or IEC 62351 authentication at the IED itself.",
+        "command": "python3 /root/Desktop/Attack_Scripts/iec61850_attack.py {{ied-1.ip}}",
+        "successCheck": "You ran the attack with both rules active and observed: SID 9100003 and SID 9100004 both fired in the Monitor Suricata tab (confirming detection worked), AND the attack script still reported the operate as accepted, with a follow-up read confirming the breaker state actually changed. You can explain why — Suricata's passive tap architecture cannot reliably outrace a single fast packet between two containers on the same Docker bridge — and why genuine prevention would require an inline device or protocol-level authentication instead."
+      },
+      {
+        "id": "step-12-report",
+        "title": "Step 12 — Lab Report",
+        "body": "## Lab Report Requirements\n\nSubmit a written report (minimum 600 words) addressing the following:\n\n---\n\n### Part 1 — Technical Analysis (30%)\n\nDescribe, in your own words:\n- The IEC 61850 data model used in this lab (logical device, logical nodes, functional constraints) and how `XCBR1$CO$Pos` maps to a specific control action.\n- Why the initial attack (Step 5) produced no Suricata alert, when the equivalent DNP3 attack in Lab 03 was caught even by a naive rule.\n- What you observed in the packet data (or take on faith from the tutorial) about MMS object references appearing in cleartext, and why that matters for detection engineering.\n\n---\n\n### Part 2 — Detection Engineering Trade-offs (40%)\n\nCompare content-based detection (what you wrote here) with protocol-aware detection (`dnp3_func` in Lab 03):\n1. What are the false-positive/false-negative trade-offs of matching a literal object-reference string like `XCBR1$CO$Pos`? Why did this rule need to be scoped to the attacker's subnet specifically, unlike a rule that could safely use `$HOME_NET` on both sides?\n2. How would your rule need to change to protect a substation with 10 IEDs, each with multiple controllable points? What does that imply about the cost of not having a native parser?\n3. In Step 11 you observed the reject rule fire correctly (SID 9100004, logged as `[wDrop]`) while the attack still succeeded. Explain, in your own words, why a passive-tap Suricata sensor cannot reliably win a race against a single fast packet on a local Docker bridge, and why Lab 03's DNP3 attack (with its separate link-status probe before the Direct Operate) is a different case. What would need to change architecturally for this reject rule to reliably prevent the attack?\n\n---\n\n### Part 3 — Defense Recommendations (30%)\n\nAs the protection & control engineer, present a defense-in-depth strategy for Substation 12 that does NOT rely solely on the tap-based Suricata reject rule to actually stop an attacker (since Step 11 demonstrated its limits). Include at least THREE layers, and explain why each is necessary. Consider: IEC 62351-8/-4 certificate-based MMS authentication (which would reject the attacker's request at the IED regardless of network timing), an inline firewall/ACL restricting which hosts may reach TCP 102 in the first place, contributing an MMS parser upstream to Suricata (or an equivalent commercial ICS-aware IDS product) for better detection, asset inventory of all IEC 61850 IEDs and their controllable points, and incident response procedures for a confirmed unauthorized breaker operation.\n\n---\n\n### Deliverables\n\n- Written report (minimum 600 words, not counting screenshots)\n- Screenshot of the Monitor panel showing the undetected attack (Step 6 — zero alerts)\n- Screenshot of the Monitor panel showing SID 9100003 (alert) firing on your custom rule\n- Screenshot of the Monitor panel showing SID 9100004 (`[wDrop]` reject) firing alongside the still-successful attack\n- Your complete Custom Rules text (both the alert and reject rules)",
+        "successCheck": "Review the lab report requirements above. Ensure you have all three required screenshots before stopping the simulation. When finished, stop the simulation using the Stop button in the OTForge toolbar to free system resources."
+      }
+    ]
+  },
+  "visual": {
+    "nodes": [
+      {
+        "id": "attack-1",
+        "type": "device",
+        "position": { "x": 500, "y": 60 },
+        "data": {
+          "nodeId": "attack-1",
+          "label": "Kali Linux\n(Attacker)",
+          "category": "attack-machine",
+          "zone": "attacker"
+        }
+      },
+      {
+        "id": "firewall-1",
+        "type": "device",
+        "position": { "x": 280, "y": 160 },
+        "data": {
+          "nodeId": "firewall-1",
+          "label": "Substation Firewall",
+          "category": "firewall",
+          "zone": "plant-dmz"
+        }
+      },
+      {
+        "id": "ids-1",
+        "type": "ids-ips",
+        "position": { "x": 500, "y": 160 },
+        "data": {
+          "nodeId": "ids-1",
+          "label": "Suricata IDS/IPS\nSensor",
+          "category": "ids-ips",
+          "zone": "plant-dmz"
+        }
+      },
+      {
+        "id": "scada-1",
+        "type": "device",
+        "position": { "x": 60, "y": 280 },
+        "data": {
+          "nodeId": "scada-1",
+          "label": "SCADA Master",
+          "category": "scada-server",
+          "zone": "control"
+        }
+      },
+      {
+        "id": "historian-1",
+        "type": "historian",
+        "position": { "x": 200, "y": 280 },
+        "data": {
+          "nodeId": "historian-1",
+          "label": "Process\nHistorian",
+          "category": "historian",
+          "zone": "control"
+        }
+      },
+      {
+        "id": "hmi-1",
+        "type": "hmi",
+        "position": { "x": 340, "y": 280 },
+        "data": {
+          "nodeId": "hmi-1",
+          "label": "HMI",
+          "category": "hmi",
+          "zone": "control"
+        }
+      },
+      {
+        "id": "workstation-1",
+        "type": "device",
+        "position": { "x": 480, "y": 280 },
+        "data": {
+          "nodeId": "workstation-1",
+          "label": "Engineering\nWorkstation",
+          "category": "engineering-workstation",
+          "zone": "control"
+        }
+      },
+      {
+        "id": "switch-ot",
+        "type": "device",
+        "position": { "x": 360, "y": 400 },
+        "data": {
+          "nodeId": "switch-ot",
+          "label": "Substation LAN\nSwitch",
+          "category": "switch",
+          "zone": "ot"
+        }
+      },
+      {
+        "id": "ied-1",
+        "type": "device",
+        "position": { "x": 360, "y": 580 },
+        "data": {
+          "nodeId": "ied-1",
+          "label": "IED-1\nFeeder Bay 12",
+          "category": "iec61850-ied",
+          "zone": "ot"
+        }
+      },
+      {
+        "id": "breaker-1",
+        "type": "valve",
+        "position": { "x": 360, "y": 780 },
+        "data": {
+          "nodeId": "breaker-1",
+          "label": "XCBR1\nFeeder Breaker (Attack Target)",
+          "zone": "ot"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-attack-ids",
+        "source": "attack-1",
+        "target": "ids-1",
+        "data": {
+          "protocol": "none",
+          "label": "Monitored traffic"
+        }
+      },
+      {
+        "id": "e-attack-firewall",
+        "source": "attack-1",
+        "target": "firewall-1",
+        "data": {
+          "protocol": "none",
+          "label": ""
+        }
+      },
+      {
+        "id": "e-firewall-scada",
+        "source": "firewall-1",
+        "target": "scada-1",
+        "data": {
+          "protocol": "none",
+          "label": ""
+        }
+      },
+      {
+        "id": "e-scada-switch",
+        "source": "scada-1",
+        "target": "switch-ot",
+        "data": {
+          "protocol": "iec61850",
+          "label": "MMS :102"
+        }
+      },
+      {
+        "id": "e-historian-switch",
+        "source": "historian-1",
+        "target": "switch-ot",
+        "data": {
+          "protocol": "none",
+          "label": ""
+        }
+      },
+      {
+        "id": "e-hmi-switch",
+        "source": "hmi-1",
+        "target": "switch-ot",
+        "data": {
+          "protocol": "none",
+          "label": ""
+        }
+      },
+      {
+        "id": "e-workstation-switch",
+        "source": "workstation-1",
+        "target": "switch-ot",
+        "data": {
+          "protocol": "iec61850",
+          "label": "MMS :102 (Engineering)"
+        }
+      },
+      {
+        "id": "e-switch-ied1",
+        "source": "switch-ot",
+        "target": "ied-1",
+        "data": {
+          "protocol": "iec61850",
+          "label": "MMS :102"
+        }
+      },
+      {
+        "id": "e-ied1-breaker",
+        "source": "ied-1",
+        "target": "breaker-1",
+        "data": {
+          "protocol": "none",
+          "label": "Trip/Close (XCBR1.Pos)",
+          "fluidType": "electric"
+        }
+      }
+    ],
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "zoom": 0.9
+    }
+  },
+  "network": {
+    "segments": [
+      {
+        "zone": "ot",
+        "subnet": "10.200.10.0/24",
+        "gateway": "10.200.10.1",
+        "dockerNetwork": "ics-sim-ot-net"
+      },
+      {
+        "zone": "control",
+        "subnet": "10.200.20.0/24",
+        "gateway": "10.200.20.1",
+        "dockerNetwork": "ics-sim-control-net"
+      },
+      {
+        "zone": "plant-dmz",
+        "subnet": "10.200.30.0/24",
+        "gateway": "10.200.30.1",
+        "dockerNetwork": "ics-sim-plant-dmz-net"
+      },
+      {
+        "zone": "attacker",
+        "subnet": "10.200.60.0/24",
+        "gateway": "10.200.60.1",
+        "dockerNetwork": "ics-sim-attacker-net"
+      }
+    ],
+    "routes": []
+  },
+  "devices": {
+    "devices": {
+      "ied-1": {
+        "nodeId": "ied-1",
+        "category": "iec61850-ied",
+        "ipAddress": "10.200.10.12",
+        "protocols": ["iec61850"]
+      },
+      "switch-ot": {
+        "nodeId": "switch-ot",
+        "category": "switch",
+        "ipAddress": "10.200.10.20",
+        "protocols": ["none"]
+      },
+      "scada-1": {
+        "nodeId": "scada-1",
+        "category": "scada-server",
+        "ipAddress": "10.200.20.10",
+        "protocols": ["none"]
+      },
+      "workstation-1": {
+        "nodeId": "workstation-1",
+        "category": "engineering-workstation",
+        "ipAddress": "10.200.20.13",
+        "protocols": ["none"]
+      },
+      "firewall-1": {
+        "nodeId": "firewall-1",
+        "category": "firewall",
+        "ipAddress": "10.200.30.11",
+        "protocols": ["none"]
+      },
+      "attack-1": {
+        "nodeId": "attack-1",
+        "category": "attack-machine",
+        "ipAddress": "10.200.60.10",
+        "protocols": ["none"],
+        "extraNetworks": ["ot"]
+      }
+    }
+  },
+  "security": {
+    "defaultFirewallPolicy": "deny",
+    "firewallRules": [
+      {
+        "id": "rule-allow-control-ot-mms",
+        "sourceZone": "control",
+        "destinationZone": "ot",
+        "protocol": "tcp",
+        "destinationPort": 102,
+        "action": "allow",
+        "comment": "Allow SCADA master and engineering workstation to reach IED-1 via MMS"
+      },
+      {
+        "id": "rule-allow-attacker-ot-mms",
+        "sourceZone": "attacker",
+        "destinationZone": "ot",
+        "protocol": "tcp",
+        "destinationPort": 102,
+        "action": "allow",
+        "comment": "INTENTIONALLY INSECURE: MMS reachable from attacker network — demonstrates missing segmentation. Students add a reject rule in Suricata to remediate at the IPS layer."
+      },
+      {
+        "id": "rule-allow-ot-control-any",
+        "sourceZone": "ot",
+        "destinationZone": "control",
+        "protocol": "any",
+        "destinationPort": "any",
+        "action": "allow",
+        "comment": "Allow IED-1 responses back to the SCADA master and workstation"
+      },
+      {
+        "id": "rule-allow-control-plant-dmz",
+        "sourceZone": "control",
+        "destinationZone": "plant-dmz",
+        "protocol": "any",
+        "destinationPort": "any",
+        "action": "allow",
+        "comment": "Allow control zone to reach plant DMZ (for workstation to access OTForge monitoring)"
+      }
+    ],
+    "ids": {
+      "enabledRulesets": [],
+      "disabledRuleIds": [],
+      "zeekScripts": []
+    },
+    "logging": {
+      "retentionDays": 7,
+      "influxdbEnabled": true,
+      "lokiEnabled": true
+    }
+  }
+}
