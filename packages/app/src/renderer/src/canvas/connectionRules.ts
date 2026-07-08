@@ -73,6 +73,7 @@ export const VALID_CONNECTIONS: Partial<
     'smart-sensor': ['modbus-tcp', 'modbus-rtu', 'modbus-ascii', 'opc-ua'],
     rtu: ['modbus-tcp', 'modbus-rtu', 'dnp3'],
     ied: ['modbus-tcp', 'iec61850'],
+    'iec61850-ied': ['iec61850'],
     plc: ['modbus-tcp', 'ethernet-ip'], // peer-to-peer PLC network
     'safety-plc': ['ethernet-ip', 'modbus-tcp'], // PLC shares data with adjacent SIS
     'legacy-plc': ['s7comm', 'modbus-tcp'], // PLC → Siemens S7 peer (Phase 10)
@@ -96,6 +97,7 @@ export const VALID_CONNECTIONS: Partial<
     'iec104-rtu': ['iec-104', 'modbus-tcp'], // RTU → IEC 104 RTU peer (Phase 10)
     'process-unit': ['modbus-tcp', 'modbus-rtu'], // RTU polls process simulation (Phase 11)
     ied: ['dnp3', 'iec61850'],
+    'iec61850-ied': ['iec61850'],
     hmi: ['dnp3', 'modbus-tcp'],
     historian: ['dnp3'],
     'scada-server': ['dnp3', 'modbus-tcp'],
@@ -116,6 +118,18 @@ export const VALID_CONNECTIONS: Partial<
     hmi: ['dnp3', 'iec61850'],
     historian: ['dnp3', 'iec61850'],
     'scada-server': ['dnp3', 'iec61850'],
+    switch: ['none'],
+    router: ['none'],
+    firewall: ['none'],
+    'ids-ips': ['none']
+  },
+
+  // ── IEC 61850 IED (dedicated real MMS server — libiec61850, port 102) ──────
+  // Unlike the generic 'ied' stub (which speaks DNP3/IEC61850/S7comm depending on
+  // scenario), this device is a single-protocol substation IED: MMS client/server
+  // only. GOOSE/Sampled Values are deferred (layer-2 multicast, impractical on
+  // Docker bridges) so no peer-to-peer entry exists yet — see containers/iec61850/.
+  'iec61850-ied': {
     switch: ['none'],
     router: ['none'],
     firewall: ['none'],
@@ -170,6 +184,7 @@ export const VALID_CONNECTIONS: Partial<
     plc: ['modbus-tcp', 'opc-ua'],
     rtu: ['dnp3', 'modbus-tcp'],
     ied: ['dnp3', 'iec61850'],
+    'iec61850-ied': ['iec61850'],
     'safety-plc': ['modbus-tcp', 'opc-ua'], // HMI shows SIS status (read-only)
     'dcs-controller': ['opc-ua', 'modbus-tcp'],
     'legacy-plc': ['s7comm', 'opc-ua'], // HMI reads Siemens S7 via S7comm or OPC-UA (Phase 10)
@@ -188,6 +203,7 @@ export const VALID_CONNECTIONS: Partial<
     plc: ['opc-ua', 'modbus-tcp'],
     rtu: ['dnp3'],
     ied: ['dnp3', 'iec61850'],
+    'iec61850-ied': ['iec61850'],
     'safety-plc': ['opc-ua'], // logs safety system events
     'dcs-controller': ['opc-ua', 'modbus-tcp'],
     'smart-sensor': ['opc-ua', 'modbus-tcp', 'dnp3'], // includes former analyzer/pmu
@@ -212,6 +228,7 @@ export const VALID_CONNECTIONS: Partial<
     plc: ['modbus-tcp', 'opc-ua', 'dnp3'],
     rtu: ['dnp3', 'modbus-tcp'],
     ied: ['iec61850', 'dnp3'],
+    'iec61850-ied': ['iec61850'],
     'dcs-controller': ['opc-ua', 'modbus-tcp'],
     'safety-plc': ['opc-ua', 'modbus-tcp'],
     'smart-sensor': ['dnp3', 'opc-ua'], // includes former pmu
@@ -454,6 +471,7 @@ export const VALID_CONNECTIONS: Partial<
     plc: ['none'], // Ethernet to OpenPLC web / EtherNet/IP config
     rtu: ['none'], // Ethernet to RTU management interface
     ied: ['none'], // Ethernet to IED configuration tool
+    'iec61850-ied': ['none', 'iec61850'], // MMS engineering client (e.g. libiec61850 tools)
     'safety-plc': ['none'], // SIS engineering console (TriStation, Safety Builder)
     'dcs-controller': ['none'], // DCS engineering workstation (DeltaV Explorer, Experion)
     'legacy-plc': ['none'], // Ethernet to Siemens TIA Portal / Step 7
@@ -542,6 +560,7 @@ export const VALID_CONNECTIONS: Partial<
     plc: ['none'],
     rtu: ['none'],
     ied: ['none'],
+    'iec61850-ied': ['none'],
     'safety-plc': ['none'],
     'dcs-controller': ['none'],
     'legacy-plc': ['none'], // Phase 10
@@ -578,6 +597,7 @@ export const VALID_CONNECTIONS: Partial<
     plc: ['none'],
     rtu: ['none'],
     ied: ['none'],
+    'iec61850-ied': ['none'],
     'safety-plc': ['none'],
     'dcs-controller': ['none'],
     'legacy-plc': ['none'], // Phase 10
@@ -614,6 +634,7 @@ export const VALID_CONNECTIONS: Partial<
     plc: ['none'],
     rtu: ['none'],
     ied: ['none'],
+    'iec61850-ied': ['none'],
     'safety-plc': ['none'],
     'dcs-controller': ['none'],
     'legacy-plc': ['none'], // Phase 10
@@ -650,6 +671,7 @@ export const VALID_CONNECTIONS: Partial<
     plc: ['none'],
     rtu: ['none'],
     ied: ['none'],
+    'iec61850-ied': ['none'],
     'safety-plc': ['none'],
     'dcs-controller': ['none'],
     'legacy-plc': ['none'], // Phase 10
@@ -718,6 +740,10 @@ export const VALID_CONNECTIONS: Partial<
       'iec61850',
       'none'
     ],
+    // MMS read/write attacks (unauthenticated GetDataValues/SetDataValues) against
+    // the real IEC 61850 IED — analogous to the GOOSE/IEC 104 breaker-trip attacks
+    // used in the Ukraine grid incidents.
+    'iec61850-ied': ['iec61850', 'none'],
     // TRITON/TRISIS attack vector: TriStation protocol injection into SIS — Schneider Triconex, 2017
     'safety-plc': ['modbus-tcp', 'modbus-rtu', 'ethernet-ip', 'opc-ua', 'none'],
     // DCS attacks: OPC-UA credential attacks, Modbus setpoint manipulation
