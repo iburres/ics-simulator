@@ -5699,7 +5699,13 @@ code.prop-value {
   display: flex;
   align-items: center;
   gap: 22px;
-  max-width: 620px;
+  /* Fixed width, not max-width: the previous max-width-only card resized on
+     every docker pull progress-line update (measured: ~490px for a short
+     line vs ~640px for a long one), producing a visible pulsing/"flashing"
+     resize each time the line changed. A fixed width keeps the card stable
+     regardless of the current line's length. */
+  width: 760px;
+  max-width: 90vw;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8);
 }
 
@@ -5717,6 +5723,15 @@ code.prop-value {
   to {
     transform: rotate(360deg);
   }
+}
+
+.pull-overlay-text {
+  /* flex + min-width:0 lets this item (and its nowrap progress line child)
+     actually shrink to fit the now-fixed-width card instead of the flex
+     item's default min-width:auto forcing it to stay as wide as the line's
+     full, un-truncated content. */
+  flex: 1;
+  min-width: 0;
 }
 
 .pull-overlay-text strong {
@@ -5742,5 +5757,5 @@ code.prop-value {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 500px;
+  max-width: 100%;
 }
