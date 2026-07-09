@@ -130,7 +130,7 @@ Real protocol packets flow on Docker virtual networks — scanner tools and expl
 ```bash
 git clone https://github.com/iburres/otforge.git
 cd otforge
-npm ci
+npm install
 node node_modules/electron/install.js   # macOS only — downloads the Electron binary
 npm run build:packages
 npm run dev

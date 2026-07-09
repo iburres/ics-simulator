@@ -99,7 +99,7 @@ Type **Y** when prompted.
 
 Then install and launch:
 ```powershell
-npm ci
+npm install
 npm run build:packages
 npm run dev
 ```
@@ -108,7 +108,7 @@ npm run dev
 
 **macOS (Terminal — from `~/OTForge`):**
 ```bash
-npm ci
+npm install
 npm run dev
 ```
 
