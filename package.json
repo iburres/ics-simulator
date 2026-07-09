@@ -16,7 +16,7 @@
     "packages/*"
   ],
   "scripts": {
-    "predev": "npm install --legacy-peer-deps --no-package-lock",
+    "predev": "npm install --legacy-peer-deps --no-package-lock && node node_modules/electron/install.js",
     "dev": "npm run build:packages && npm run dev --workspace=packages/app",
     "build": "npm run build --workspace=packages/schema && npm run build --workspace=packages/app",
     "build:win": "npm run build:schema && npm run build:win --workspace=packages/app",
