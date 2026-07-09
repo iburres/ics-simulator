@@ -172,6 +172,13 @@ npm install
 npm run dev
 ```
 
+### `Error: Electron uninstall` (Windows)
+`npm run dev` already tries to fix this automatically, but if your antivirus or campus network blocks the direct download from GitHub, it can still fail. Run the included repair script from `C:\OTForge`:
+```powershell
+.\fix-electron.ps1
+```
+It checks for an already-cached copy first, then downloads directly with clear error messages if that fails too (helpful for telling your instructor exactly what went wrong — antivirus quarantine vs. a blocked network, for example).
+
 ### `TypeError: crypto.hash is not a function`
 You are running Node.js 20. Uninstall it and install Node.js 22 from **https://nodejs.org**, then rerun from Step 5.
 

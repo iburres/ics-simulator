@@ -454,8 +454,9 @@ npm run dev</code></pre>
 npm run dev</code></pre>
 
   <h3><code>npm run dev</code> fails &mdash; Electron not installed (Windows)</h3>
-  <p>Run the included repair script from <code>C:\OTForge</code>:</p>
+  <p><code>npm run dev</code> already tries to fix this automatically, but if your antivirus or campus network blocks the direct download from GitHub, it can still fail. Run the included repair script from <code>C:\OTForge</code>:</p>
 <pre><code>.\fix-electron.ps1</code></pre>
+  <p>It checks for an already-cached copy first, then downloads directly with clear error messages if that fails too.</p>
 
   <h3><code>TypeError: crypto.hash is not a function</code></h3>
   <p>You are running Node.js 20. Uninstall it and install Node.js 22 from <a href="https://nodejs.org" target="_blank">https://nodejs.org</a>, then rerun from Step 5.</p>
