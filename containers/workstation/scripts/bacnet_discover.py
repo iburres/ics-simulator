@@ -34,15 +34,27 @@ import sys
 
 # ── BACnet object type codes (ASHRAE 135 Table 12-1) ────────────────────────
 OBJ_ANALOG_INPUT  = 0
+OBJ_ANALOG_OUTPUT = 1
+OBJ_ANALOG_VALUE  = 2
 OBJ_BINARY_INPUT  = 3
+OBJ_BINARY_OUTPUT = 4
+OBJ_BINARY_VALUE  = 5
 OBJ_DEVICE        = 8
 
 # Human-readable names for the types we display
 OBJ_TYPE_NAMES = {
-    OBJ_ANALOG_INPUT: "analog-input",
-    OBJ_BINARY_INPUT: "binary-input",
-    OBJ_DEVICE:       "device",
+    OBJ_ANALOG_INPUT:  "analog-input",
+    OBJ_ANALOG_OUTPUT: "analog-output",
+    OBJ_ANALOG_VALUE:  "analog-value",
+    OBJ_BINARY_INPUT:  "binary-input",
+    OBJ_BINARY_OUTPUT: "binary-output",
+    OBJ_DEVICE:        "device",
 }
+
+# analog-value/analog-output/binary-output are the writable object types this
+# project's BACnet devices expose (see bacnet_write.py) — flagged here purely
+# for the "(writable)" hint in the printed table, not for any protocol reason.
+WRITABLE_TYPES = {OBJ_ANALOG_OUTPUT, OBJ_ANALOG_VALUE, OBJ_BINARY_OUTPUT}
 
 # ── BACnet property identifier codes (ASHRAE 135 Table 12-2) ────────────────
 PROP_OBJECT_LIST  = 76    # 0x4C
@@ -378,15 +390,14 @@ def poll_device(host: str, port: int, instance: int, timeout: float) -> None:
             print("[bacnet] Empty or unreadable object list")
             return
 
-        readable = [(t, i) for t, i in object_list
-                    if t in (OBJ_ANALOG_INPUT, OBJ_BINARY_INPUT)]
+        readable = [(t, i) for t, i in object_list if t in OBJ_TYPE_NAMES and t != OBJ_DEVICE]
 
         print(f"\n[bacnet] Device {instance} — {len(object_list)} objects total, "
-              f"{len(readable)} readable (AI + BI):\n")
-        print(f"  {'Object':<32} {'Name':<22} {'Present Value'}")
-        print("  " + "-" * 65)
+              f"{len(readable)} readable:\n")
+        print(f"  {'Object':<32} {'Name':<26} {'Present Value'}")
+        print("  " + "-" * 70)
 
-        # Step 2 — For each AI/BI object, read present-value and object-name
+        # Step 2 — For each object, read present-value and object-name
         for obj_type, obj_inst in readable:
             invoke = (invoke + 1) & 0xFF
             type_name = OBJ_TYPE_NAMES.get(obj_type, f"type-{obj_type}")
@@ -395,6 +406,8 @@ def poll_device(host: str, port: int, instance: int, timeout: float) -> None:
             pv_raw  = send_recv(sock, pv_req, target, timeout)
             pv_str  = decode_present_value(parse_response(pv_raw) or b"") \
                       if pv_raw else "(timeout)"
+            if obj_type in WRITABLE_TYPES:
+                pv_str += "  (writable — see bacnet_write.py)"
 
             invoke = (invoke + 1) & 0xFF
 
@@ -404,7 +417,7 @@ def poll_device(host: str, port: int, instance: int, timeout: float) -> None:
                         if name_raw else "(timeout)"
 
             label = f"{type_name},{obj_inst}"
-            print(f"  {label:<32} {name_str:<22} {pv_str}")
+            print(f"  {label:<32} {name_str:<26} {pv_str}")
 
     finally:
         sock.close()

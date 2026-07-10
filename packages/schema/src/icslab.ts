@@ -9,6 +9,7 @@ export type Sector =
   | 'water-treatment'
   | 'chemical-batch'
   | 'automotive'
+  | 'building-automation'
   | 'generic'
 
 export type Protocol =
@@ -317,6 +318,19 @@ export interface BacnetConfig {
   deviceInstance: number
   /** UDP port for BACnet/IP (standard default is 47808). */
   port?: number
+  /**
+   * Building-automation equipment type — selects which BACnet object set
+   * containers/bacnet/server.py serves (see BACNET_KIND in that file).
+   * Optional and defaults to 'generic' so scenarios saved before this field
+   * existed (e.g. ICS_Lab_02) keep behaving exactly as before.
+   *
+   *   generic     — Temperature/Pressure/FlowRate/TankLevel + Pump/Valve (original model)
+   *   ahu         — Air Handling Unit: supply/return air temp, writable setpoint, fan status+command
+   *   vav         — Variable Air Volume box: zone temp, writable setpoint, writable damper position
+   *   chiller     — chilled water supply/return temp, writable setpoint, status+command
+   *   zone-sensor — read-only room sensor: temperature, humidity, CO2, occupancy
+   */
+  kind?: 'generic' | 'ahu' | 'vav' | 'chiller' | 'zone-sensor'
 }
 
 export interface OpcUaConfig {
