@@ -1,0 +1,342 @@
+{
+  "meta": {
+    "formatVersion": "1.0",
+    "name": "Building Automation Tutorial — BACnet HVAC Survey",
+    "description": "A guided, hands-on survey of BACnet/IP building-automation equipment. Students use the Engineering Workstation to read live process values from an Air Handling Unit, two VAV boxes, a chiller, and a read-only zone sensor, then operate the controllable equipment directly — writing a new AHU supply-air setpoint, commanding a VAV damper position, and commanding a chiller off — observing each write take effect on a linked status point. No attack scenario; this is a protocol-exploration tutorial, not a graded lab. Developed for ICS/SCADA cybersecurity courses at UTSA.",
+    "sector": "building-automation",
+    "author": "Ian Burres — UTSA",
+    "createdAt": "2026-07-09T00:00:00.000Z",
+    "updatedAt": "2026-07-09T00:00:00.000Z",
+    "appVersion": "0.13.0",
+    "locked": false,
+    "brief": "## Mission: Survey Meridian Plaza's Building Automation System\n\nMeridian Plaza's building automation system (BAS) uses **BACnet/IP** — the dominant open protocol for HVAC control — to monitor and operate the building's mechanical equipment. Your job as the new BAS technician is to survey the equipment on the network:\n\n1. Read live measurements from an **Air Handling Unit (AHU)**, two **VAV boxes**, a **Chiller**, and a read-only **Zone Sensor**.\n2. Operate the controllable equipment: change a setpoint, command a damper position, and command the chiller off — each from the Engineering Workstation, using the same BACnet read/write tools a real BAS technician would use.\n3. Observe how a write to a command point (e.g. a fan or chiller command) is reflected in a separate status point almost instantly.\n\n**Rules of Engagement:** This is an isolated Docker lab environment. All traffic stays on your local machine.",
+    "requirements": {
+      "estimatedRamMb": 1024,
+      "estimatedCpuCores": 2,
+      "containerCount": 6
+    },
+    "tutorialSteps": [
+      {
+        "id": "step-00-welcome",
+        "title": "Welcome — BACnet and Building Automation",
+        "body": "## Learning Objectives\n\nBy the end of this tutorial you will be able to:\n\n- Explain what a **BACnet/IP** device is and how it differs from the SCADA protocols used elsewhere in this platform (Modbus, DNP3)\n- Identify the standard BACnet **object types** used here: Analog Input (AI), Analog Value (AV), Analog Output (AO), Binary Input (BI), Binary Output (BO)\n- Read live values from real HVAC equipment: an **AHU**, two **VAV boxes**, a **Chiller**, and a **Zone Sensor**\n- Distinguish **read-only status points** from **writable command/setpoint points**\n- Write a new value to a BACnet point and observe the effect\n\n---\n\n## BACnet/IP — Why Buildings Use It\n\nBACnet (ASHRAE/ANSI Standard 135) is the dominant open protocol for building automation — HVAC, lighting, access control, fire/life-safety integration. Unlike the industrial SCADA protocols elsewhere in this platform, BACnet models a building's equipment as a hierarchy of **objects**, each with **properties**:\n\n```\nDevice (instance number)\n  Analog Input   (AI)  — read-only measurement (a sensor reading)\n  Analog Value   (AV)  — writable setpoint (e.g. a target temperature)\n  Analog Output  (AO)  — writable actuator position (e.g. a damper %)\n  Binary Input   (BI)  — read-only status (e.g. is the fan running)\n  Binary Output  (BO)  — writable command (e.g. turn the fan on/off)\n```\n\nEach object has a **presentValue** property — the actual live number or on/off state. Client tools read and write `presentValue` using the **ReadProperty** and **WriteProperty** services over UDP port 47808.\n\n**Like Modbus and DNP3, BACnet/IP has no built-in authentication in this deployment.** Any host that can reach UDP port 47808 can write to any writable point — you'll notice this yourself in Step 4, and it's worth thinking about as you work through this tutorial.\n\n**Click Run Simulation (blue play button) to start all containers before clicking Next.**",
+        "successCheck": "Review the objectives and the BACnet object-type table above. Click Run Simulation in the toolbar and wait for the status indicator to show all containers running."
+      },
+      {
+        "id": "step-01-explore",
+        "title": "Step 1 — Meet the Equipment",
+        "body": "## Meridian Plaza's Mechanical Room and Zones\n\n- **AHU-1** — the Air Handling Unit serving the 3rd floor. Conditions outside air and pushes it through supply ductwork.\n- **VAV-1 / VAV-2** — Variable Air Volume boxes for two different zones (a conference room and an open office) fed by AHU-1's ductwork. Each VAV box fine-tunes airflow and temperature for its own zone.\n- **Chiller-1** — the central chiller plant, producing the chilled water AHU-1's cooling coil uses.\n- **ZoneSensor-1** — a standalone room sensor (temperature, humidity, CO2, occupancy) with no controllable points — purely for monitoring.\n\nAll five devices are BACnet/IP devices on the OT layer. The **BAS Workstation** in the Control layer talks to each of them directly over BACnet — unlike Modbus field devices elsewhere in this platform, BACnet devices don't need a PLC/RTU concentrator in between.\n\nSwitch to the **OT Process (L0–L2)** layer tab to see all five field devices, then the **Control (L3)** layer tab to see the BAS Workstation.",
+        "successCheck": "You can locate all five BACnet devices on the OT Process layer and the BAS Workstation on the Control layer. All containers are running (status indicator green)."
+      },
+      {
+        "id": "step-02-read-ahu",
+        "title": "Step 2 — Read the AHU",
+        "body": "## Surveying a Device's Objects\n\n1. Click the **Engineering Workstation** button in the toolbar to open its terminal.\n2. Run:\n```\npython3 /root/Desktop/Protocols/bacnet_discover.py {{ahu-1.ip}}\n```\n\nThis reads the AHU's full object list, then reads `presentValue` and `objectName` for each one. You should see something like:\n\n```\n  analog-input,1     SupplyAirTemp          13.00\n  analog-input,2     ReturnAirTemp          22.00\n  analog-value,1     SupplyAirTempSetpoint  13.00  (writable — see bacnet_write.py)\n  binary-input,1     FanStatus              active\n  binary-output,1    FanCommand             active  (writable — see bacnet_write.py)\n```\n\nNotice the tool flags `analog-value` and `binary-output` objects as writable — those are the points you'll operate in the next step. `SupplyAirTemp`/`ReturnAirTemp` (analog-input) and `FanStatus` (binary-input) are read-only status/measurement points; the server will reject a write to those.",
+        "command": "python3 /root/Desktop/Protocols/bacnet_discover.py {{ahu-1.ip}}",
+        "successCheck": "The workstation terminal shows AHU-1's five objects with live values, and you can identify which are marked writable."
+      },
+      {
+        "id": "step-03-operate-ahu",
+        "title": "Step 3 — Operate the AHU",
+        "body": "## Writing a Setpoint\n\n1. Raise the supply-air-temperature setpoint (`analog-value,1`) to 15.5°C:\n```\npython3 /root/Desktop/Protocols/bacnet_write.py {{ahu-1.ip}} av,1 15.5\n```\nYou should see `[bacnet] Write accepted.`\n\n2. Confirm it took effect:\n```\npython3 /root/Desktop/Protocols/bacnet_discover.py {{ahu-1.ip}}\n```\n`SupplyAirTempSetpoint` should now read `15.50`.\n\n---\n\n## Commanding the Fan Off — and Watching the Feedback\n\n3. Command the fan off via its binary-output command point:\n```\npython3 /root/Desktop/Protocols/bacnet_write.py {{ahu-1.ip}} bo,1 off\n```\n\n4. Read the device again. Notice `FanStatus` (the separate, read-only binary-input) now also reads `inactive` — even though you only wrote to `FanCommand`. In this simulation, a command point directly drives its linked status point, the same way a real fan's proof-of-flow status switch would reflect whether the fan is actually running.\n\n5. Turn the fan back on before moving to the next step:\n```\npython3 /root/Desktop/Protocols/bacnet_write.py {{ahu-1.ip}} bo,1 on\n```\n\n---\n\n## Try Writing to a Read-Only Point\n\n6. Attempt to write directly to the read-only `SupplyAirTemp` measurement:\n```\npython3 /root/Desktop/Protocols/bacnet_write.py {{ahu-1.ip}} av,1 --port 47808 99.0\n```\n(This still targets `av,1`, which IS writable — to see a rejection, you'd need to target an analog-input object type, which `bacnet_write.py` doesn't even offer as an object-type option, by design: the tool only lets you address av/ao/bo. That's a deliberate UX choice, not a protocol limitation — nothing about BACnet itself stops a different client from attempting it, and the server would reject it as `write-access-denied` if one did.)",
+        "command": "python3 /root/Desktop/Protocols/bacnet_write.py {{ahu-1.ip}} av,1 15.5",
+        "successCheck": "You wrote a new setpoint and confirmed it via a follow-up read, then commanded the fan off and confirmed FanStatus changed to inactive as a result, then turned it back on. You understand the tool restricts writes to av/ao/bo by design, but the protocol itself has no such restriction."
+      },
+      {
+        "id": "step-04-vav-boxes",
+        "title": "Step 4 — Compare the VAV Boxes",
+        "body": "## Zone-Level Control\n\nEach VAV box serves its own zone and can be tuned independently, even though both are fed by the same AHU.\n\n**Every BACnet device on a real network has its own device instance number** (Step 0 mentioned this — it's how BACnet's Who-Is/I-Am discovery tells devices apart). `bacnet_discover.py` defaults to instance 1001 (which happened to be AHU-1's), so for every other device in this tutorial you need to pass `--instance` explicitly, matching the device instance shown in the Properties Panel when you click that node on the canvas.\n\n1. Read both VAV boxes:\n```\npython3 /root/Desktop/Protocols/bacnet_discover.py {{vav-1.ip}} --instance 1002\npython3 /root/Desktop/Protocols/bacnet_discover.py {{vav-2.ip}} --instance 1003\n```\nCompare `ZoneTemp` and `Airflow` between the two — they drift independently, representing two different rooms with different occupancy/solar-load conditions.\n\n2. Adjust VAV-1's damper position (an `analog-output`, not an `analog-value` — the actuator itself, not a setpoint). Writing directly to an object by type+instance doesn't need the device instance — only reading the device's object list does:\n```\npython3 /root/Desktop/Protocols/bacnet_write.py {{vav-1.ip}} ao,1 80.0\n```\n\n3. Confirm the change:\n```\npython3 /root/Desktop/Protocols/bacnet_discover.py {{vav-1.ip}} --instance 1002\n```\n`DamperPosition` should now read `80.00` (percent open).",
+        "command": "python3 /root/Desktop/Protocols/bacnet_write.py {{vav-1.ip}} ao,1 80.0",
+        "successCheck": "You compared ZoneTemp/Airflow between VAV-1 and VAV-2, then wrote and confirmed a new damper position on VAV-1."
+      },
+      {
+        "id": "step-05-chiller",
+        "title": "Step 5 — The Central Plant",
+        "body": "## Reading and Operating the Chiller\n\n1. Read the chiller (instance 1004 — see Step 4 if you skipped ahead on why `--instance` matters here):\n```\npython3 /root/Desktop/Protocols/bacnet_discover.py {{chiller-1.ip}} --instance 1004\n```\nNote `ChilledWaterSupplyTemp` and `ChilledWaterReturnTemp` — the difference between them (the delta-T) is a key efficiency metric a real BAS technician would monitor.\n\n2. Command the chiller off, exactly like you did with the AHU's fan:\n```\npython3 /root/Desktop/Protocols/bacnet_write.py {{chiller-1.ip}} bo,1 off\n```\n\n3. Read it again — `ChillerStatus` should now show `inactive`.\n\n4. Command it back on before continuing:\n```\npython3 /root/Desktop/Protocols/bacnet_write.py {{chiller-1.ip}} bo,1 on\n```",
+        "command": "python3 /root/Desktop/Protocols/bacnet_discover.py {{chiller-1.ip}} --instance 1004",
+        "successCheck": "You read the chiller's supply/return temperatures, commanded it off and confirmed ChillerStatus changed, then commanded it back on."
+      },
+      {
+        "id": "step-06-zone-sensor",
+        "title": "Step 6 — A Read-Only Monitoring Device",
+        "body": "## Not Every BACnet Device Is Controllable\n\n1. Read the standalone zone sensor (instance 1005):\n```\npython3 /root/Desktop/Protocols/bacnet_discover.py {{zone-sensor-1.ip}} --instance 1005\n```\n\nNotice every object here is an `analog-input` or `binary-input` — there is nothing marked writable. This device only reports temperature, humidity, CO2, and occupancy; it has no actuators or setpoints of its own. Not every point in a BAS is meant to be operated — some exist purely to inform decisions made elsewhere (by another controller, or by a human).",
+        "command": "python3 /root/Desktop/Protocols/bacnet_discover.py {{zone-sensor-1.ip}} --instance 1005",
+        "successCheck": "You read ZoneSensor-1 and confirmed none of its objects are writable."
+      },
+      {
+        "id": "step-07-report",
+        "title": "Step 7 — Reflection",
+        "body": "## Reflection Questions\n\nThis tutorial has no formal lab report requirement — it's meant as a hands-on survey, not a graded assignment. But before moving on, consider:\n\n1. You were able to write to every AHU/VAV/Chiller command and setpoint point in this tutorial without providing any credentials. What would it take for an unauthorized host on this network to do the same thing you just did, deliberately and maliciously?\n2. BACnet/IP as used here has no equivalent to DNP3 Secure Authentication or IEC 62351. The modern secured variant is **BACnet/SC** (Secure Connect, added in a 2020 addendum) — what would need to change in this simulation's architecture to model that?\n3. Real BAS networks often bridge dozens or hundreds of devices through a **BACnet router** or **BBMD** (BACnet Broadcast Management Device) rather than every device sitting on one flat network segment. What security benefit might that segmentation provide, beyond the protocol-level authentication gap in question 2?\n\nWhen you're done, stop the simulation using the Stop button in the OTForge toolbar to free system resources.",
+        "successCheck": "Review the reflection questions above. When finished, stop the simulation."
+      }
+    ]
+  },
+  "visual": {
+    "nodes": [
+      {
+        "id": "workstation-1",
+        "type": "device",
+        "position": { "x": 340, "y": 80 },
+        "data": {
+          "nodeId": "workstation-1",
+          "label": "BAS\nWorkstation",
+          "category": "engineering-workstation",
+          "zone": "control"
+        }
+      },
+      {
+        "id": "historian-1",
+        "type": "historian",
+        "position": { "x": 520, "y": 80 },
+        "data": {
+          "nodeId": "historian-1",
+          "label": "BAS\nHistorian",
+          "category": "historian",
+          "zone": "control"
+        }
+      },
+      {
+        "id": "switch-ot",
+        "type": "device",
+        "position": { "x": 340, "y": 220 },
+        "data": {
+          "nodeId": "switch-ot",
+          "label": "Mechanical Room\nSwitch",
+          "category": "switch",
+          "zone": "ot"
+        }
+      },
+      {
+        "id": "ahu-1",
+        "type": "device",
+        "position": { "x": 80, "y": 380 },
+        "data": {
+          "nodeId": "ahu-1",
+          "label": "AHU-1",
+          "category": "sensor",
+          "zone": "ot"
+        }
+      },
+      {
+        "id": "vav-1",
+        "type": "device",
+        "position": { "x": 260, "y": 380 },
+        "data": {
+          "nodeId": "vav-1",
+          "label": "VAV-1\n(Conf. Room)",
+          "category": "sensor",
+          "zone": "ot"
+        }
+      },
+      {
+        "id": "vav-2",
+        "type": "device",
+        "position": { "x": 420, "y": 380 },
+        "data": {
+          "nodeId": "vav-2",
+          "label": "VAV-2\n(Open Office)",
+          "category": "sensor",
+          "zone": "ot"
+        }
+      },
+      {
+        "id": "chiller-1",
+        "type": "device",
+        "position": { "x": 580, "y": 380 },
+        "data": {
+          "nodeId": "chiller-1",
+          "label": "Chiller-1",
+          "category": "sensor",
+          "zone": "ot"
+        }
+      },
+      {
+        "id": "zone-sensor-1",
+        "type": "device",
+        "position": { "x": 740, "y": 380 },
+        "data": {
+          "nodeId": "zone-sensor-1",
+          "label": "ZoneSensor-1",
+          "category": "sensor",
+          "zone": "ot"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-workstation-ahu",
+        "source": "workstation-1",
+        "target": "ahu-1",
+        "data": { "protocol": "bacnet", "label": "BACnet/IP :47808" }
+      },
+      {
+        "id": "e-workstation-vav1",
+        "source": "workstation-1",
+        "target": "vav-1",
+        "data": { "protocol": "bacnet", "label": "BACnet/IP :47808" }
+      },
+      {
+        "id": "e-workstation-vav2",
+        "source": "workstation-1",
+        "target": "vav-2",
+        "data": { "protocol": "bacnet", "label": "BACnet/IP :47808" }
+      },
+      {
+        "id": "e-workstation-chiller",
+        "source": "workstation-1",
+        "target": "chiller-1",
+        "data": { "protocol": "bacnet", "label": "BACnet/IP :47808" }
+      },
+      {
+        "id": "e-workstation-zonesensor",
+        "source": "workstation-1",
+        "target": "zone-sensor-1",
+        "data": { "protocol": "bacnet", "label": "BACnet/IP :47808" }
+      },
+      {
+        "id": "e-historian-switch",
+        "source": "historian-1",
+        "target": "switch-ot",
+        "data": { "protocol": "none", "label": "" }
+      },
+      {
+        "id": "e-workstation-switch",
+        "source": "workstation-1",
+        "target": "switch-ot",
+        "data": { "protocol": "none", "label": "" }
+      },
+      {
+        "id": "e-switch-ahu",
+        "source": "switch-ot",
+        "target": "ahu-1",
+        "data": { "protocol": "none", "label": "" }
+      },
+      {
+        "id": "e-switch-vav1",
+        "source": "switch-ot",
+        "target": "vav-1",
+        "data": { "protocol": "none", "label": "" }
+      },
+      {
+        "id": "e-switch-vav2",
+        "source": "switch-ot",
+        "target": "vav-2",
+        "data": { "protocol": "none", "label": "" }
+      },
+      {
+        "id": "e-switch-chiller",
+        "source": "switch-ot",
+        "target": "chiller-1",
+        "data": { "protocol": "none", "label": "" }
+      },
+      {
+        "id": "e-switch-zonesensor",
+        "source": "switch-ot",
+        "target": "zone-sensor-1",
+        "data": { "protocol": "none", "label": "" }
+      }
+    ],
+    "viewport": { "x": 0, "y": 0, "zoom": 0.9 }
+  },
+  "network": {
+    "segments": [
+      {
+        "zone": "ot",
+        "subnet": "10.200.10.0/24",
+        "gateway": "10.200.10.1",
+        "dockerNetwork": "ics-sim-ot-net"
+      },
+      {
+        "zone": "control",
+        "subnet": "10.200.20.0/24",
+        "gateway": "10.200.20.1",
+        "dockerNetwork": "ics-sim-control-net"
+      }
+    ],
+    "routes": []
+  },
+  "devices": {
+    "devices": {
+      "ahu-1": {
+        "nodeId": "ahu-1",
+        "category": "sensor",
+        "ipAddress": "10.200.10.11",
+        "protocols": ["bacnet"],
+        "bacnet": { "deviceInstance": 1001, "port": 47808, "kind": "ahu" }
+      },
+      "vav-1": {
+        "nodeId": "vav-1",
+        "category": "sensor",
+        "ipAddress": "10.200.10.12",
+        "protocols": ["bacnet"],
+        "bacnet": { "deviceInstance": 1002, "port": 47808, "kind": "vav" }
+      },
+      "vav-2": {
+        "nodeId": "vav-2",
+        "category": "sensor",
+        "ipAddress": "10.200.10.13",
+        "protocols": ["bacnet"],
+        "bacnet": { "deviceInstance": 1003, "port": 47808, "kind": "vav" }
+      },
+      "chiller-1": {
+        "nodeId": "chiller-1",
+        "category": "sensor",
+        "ipAddress": "10.200.10.14",
+        "protocols": ["bacnet"],
+        "bacnet": { "deviceInstance": 1004, "port": 47808, "kind": "chiller" }
+      },
+      "zone-sensor-1": {
+        "nodeId": "zone-sensor-1",
+        "category": "sensor",
+        "ipAddress": "10.200.10.15",
+        "protocols": ["bacnet"],
+        "bacnet": { "deviceInstance": 1005, "port": 47808, "kind": "zone-sensor" }
+      },
+      "switch-ot": {
+        "nodeId": "switch-ot",
+        "category": "switch",
+        "ipAddress": "10.200.10.20",
+        "protocols": ["none"]
+      },
+      "workstation-1": {
+        "nodeId": "workstation-1",
+        "category": "engineering-workstation",
+        "ipAddress": "10.200.20.13",
+        "protocols": ["none"]
+      }
+    }
+  },
+  "security": {
+    "defaultFirewallPolicy": "deny",
+    "firewallRules": [
+      {
+        "id": "rule-allow-control-ot-bacnet",
+        "sourceZone": "control",
+        "destinationZone": "ot",
+        "protocol": "udp",
+        "destinationPort": 47808,
+        "action": "allow",
+        "comment": "Allow the BAS workstation to reach all BACnet/IP field devices"
+      },
+      {
+        "id": "rule-allow-ot-control-any",
+        "sourceZone": "ot",
+        "destinationZone": "control",
+        "protocol": "any",
+        "destinationPort": "any",
+        "action": "allow",
+        "comment": "Allow BACnet responses back to the workstation"
+      }
+    ],
+    "ids": {
+      "enabledRulesets": [],
+      "disabledRuleIds": [],
+      "zeekScripts": []
+    },
+    "logging": {
+      "retentionDays": 7,
+      "influxdbEnabled": true,
+      "lokiEnabled": true
+    }
+  }
+}
