@@ -192,6 +192,7 @@ export const VALID_CONNECTIONS: Partial<
     'process-unit': ['modbus-tcp'], // HMI reads process simulation PVs (Phase 11)
     'scada-server': ['opc-ua', 'none'], // HMI pulls display data from SCADA server
     historian: ['opc-ua', 'none'],
+    sensor: ['bacnet'], // HMI reads BACnet building-automation devices directly
     switch: ['none'],
     router: ['none'],
     firewall: ['none'],
@@ -207,6 +208,7 @@ export const VALID_CONNECTIONS: Partial<
     'safety-plc': ['opc-ua'], // logs safety system events
     'dcs-controller': ['opc-ua', 'modbus-tcp'],
     'smart-sensor': ['opc-ua', 'modbus-tcp', 'dnp3'], // includes former analyzer/pmu
+    sensor: ['bacnet'], // Historian archives BACnet building-automation data
     'iot-gateway': ['mqtt', 'opc-ua'], // IIoT time-series data
     'legacy-plc': ['s7comm', 'opc-ua'], // Historian archives Siemens S7 data (Phase 10)
     'iec104-rtu': ['iec-104'], // Historian archives IEC 104 RTU data (Phase 10)
@@ -232,6 +234,7 @@ export const VALID_CONNECTIONS: Partial<
     'dcs-controller': ['opc-ua', 'modbus-tcp'],
     'safety-plc': ['opc-ua', 'modbus-tcp'],
     'smart-sensor': ['dnp3', 'opc-ua'], // includes former pmu
+    sensor: ['bacnet'], // SCADA server polls BACnet building-automation devices directly
     'iot-gateway': ['opc-ua', 'mqtt'],
     'legacy-plc': ['s7comm', 'opc-ua'], // Phase 10
     'iec104-rtu': ['iec-104'], // Phase 10
@@ -339,7 +342,16 @@ export const VALID_CONNECTIONS: Partial<
     'iec104-rtu': ['modbus-rtu', 'modbus-tcp'],
     'iot-gateway': ['mqtt', 'modbus-tcp'],
     'process-unit': ['modbus-tcp', 'none'], // P&ID: sensor mounted on / measuring the vessel
-    'smart-controller': ['modbus-tcp', 'none'] // P&ID: positioner feedback — sensor reads actuator position
+    'smart-controller': ['modbus-tcp', 'none'], // P&ID: positioner feedback — sensor reads actuator position
+    // BACnet building-automation devices (containers/bacnet) talk directly to the
+    // BAS head-end — unlike Modbus field devices, BACnet/IP doesn't need a PLC/RTU
+    // concentrator in between.
+    hmi: ['bacnet'],
+    historian: ['bacnet'],
+    'scada-server': ['bacnet'],
+    'engineering-workstation': ['none', 'bacnet'],
+    switch: ['none'],
+    router: ['none']
   },
 
   // ── Smart Controller (consolidated pump/valve/vfd/actuator — real Modbus container) ──
@@ -472,6 +484,7 @@ export const VALID_CONNECTIONS: Partial<
     rtu: ['none'], // Ethernet to RTU management interface
     ied: ['none'], // Ethernet to IED configuration tool
     'iec61850-ied': ['none', 'iec61850'], // MMS engineering client (e.g. libiec61850 tools)
+    sensor: ['none', 'bacnet'], // BAS engineering client (e.g. bacpypes3 tools)
     'safety-plc': ['none'], // SIS engineering console (TriStation, Safety Builder)
     'dcs-controller': ['none'], // DCS engineering workstation (DeltaV Explorer, Experion)
     'legacy-plc': ['none'], // Ethernet to Siemens TIA Portal / Step 7

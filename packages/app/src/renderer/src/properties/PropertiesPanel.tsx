@@ -33,13 +33,15 @@ import type {
   SecurityLayer,
   RtuConfig,
   SensorConfig,
-  ControllerConfig
+  ControllerConfig,
+  BacnetConfig
 } from '@otforge/schema'
 import { DeviceIcon } from '../icons/DeviceIcons'
 import { ZONE_COLORS } from '../canvas/DeviceNode'
 import { FirewallPanel, IDSPanel } from './SecurityPanel'
 import { SensorPanel } from './SensorPanel'
 import { ControllerPanel } from './ControllerPanel'
+import { BacnetPanel } from './BacnetPanel'
 
 /** Full human-readable names for the properties panel header. */
 const CATEGORY_LABELS: Record<string, string> = {
@@ -49,7 +51,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   'iec61850-ied': 'IEC 61850 IED (MMS) — substation automation',
   hmi: 'Human Machine Interface',
   historian: 'Data Historian',
-  sensor: 'Field Sensor',
+  sensor: 'BACnet Device — building automation (generic / AHU / VAV / chiller / zone sensor)',
   'smart-sensor': 'Smart Sensor',
   'smart-controller': 'Smart Controller',
   firewall: 'Firewall',
@@ -97,6 +99,7 @@ interface PropertiesPanelProps {
       rtuConfig?: RtuConfig
       sensor?: SensorConfig
       controller?: ControllerConfig
+      bacnet?: BacnetConfig
     }
   ) => void
   /**
@@ -439,6 +442,12 @@ export function PropertiesPanel({
                 <span className="prop-label">Port</span>
                 <code className="prop-value">{device.bacnet.port ?? 47808}</code>
               </div>
+              <BacnetPanel
+                bacnetConfig={device.bacnet}
+                nodeId={device.nodeId}
+                readOnly={readOnly}
+                onChange={(nodeId, bacnet) => onDeviceChange?.(nodeId, { bacnet })}
+              />
             </section>
           )}
 

@@ -79,6 +79,7 @@ import {
 } from './connectionRules'
 import { DEFAULT_SENSOR_CONFIG } from '../properties/SensorPanel'
 import { DEFAULT_CONTROLLER_CONFIG } from '../properties/ControllerPanel'
+import { DEFAULT_BACNET_CONFIG } from '../properties/BacnetPanel'
 
 /**
  * Protocol options shown in the "Application Protocol" section of the connection menu.
@@ -339,7 +340,10 @@ const DEFAULT_PROTOCOLS: Record<DeviceCategory, Protocol[]> = {
   'legacy-plc': ['s7comm'], // Siemens S7 — S7comm primary protocol (Phase 10)
   'iec104-rtu': ['iec-104'], // IEC 60870-5-104 RTU (Phase 10)
   'process-unit': ['modbus-tcp'], // physics process sim — Modbus TCP server (Phase 11)
-  sensor: ['modbus-tcp'],
+  // 'sensor' always runs the real otforge-bacnet container (see DEVICE_IMAGES in
+  // compose-generator.ts) — the previous 'modbus-tcp' default here was stale/never
+  // matched what actually gets deployed.
+  sensor: ['bacnet'],
   'iiot-sensor': ['mqtt'], // wireless IIoT sensor publishes MQTT
   'iot-gateway': ['mqtt'], // gateway bridges MQTT ↔ OPC-UA/historian
   'smart-sensor': ['modbus-tcp'], // real otforge-modbus container → PLC via Modbus TCP
@@ -1861,6 +1865,13 @@ export function ScadaCanvas({
       // Authors pick the kind via the Properties Panel dropdown.
       if (category === 'smart-controller') {
         device.controller = DEFAULT_CONTROLLER_CONFIG
+      }
+
+      // 'sensor' devices always run the real otforge-bacnet container — give them
+      // a default BACnet config (generic kind) so the BACnet section and Equipment
+      // Kind dropdown are immediately populated, matching smart-sensor/smart-controller.
+      if (category === 'sensor') {
+        device.bacnet = DEFAULT_BACNET_CONFIG
       }
 
       // Use the pack device type's label if available; fall back to the built-in label.

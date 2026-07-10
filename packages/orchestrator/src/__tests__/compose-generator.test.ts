@@ -851,6 +851,40 @@ describe('legacy protocol environment variable injection', () => {
     const env = compose.services['bacnet-1'].environment ?? []
     expect(env).toContain('BACNET_PORT=47808')
   })
+
+  it('injects BACNET_KIND for a building-automation equipment kind', () => {
+    const compose = gen(
+      makeScenario([
+        [
+          'ahu-1',
+          {
+            category: 'sensor',
+            ipAddress: '10.200.10.10',
+            bacnet: { deviceInstance: 1002, kind: 'ahu' }
+          }
+        ]
+      ])
+    )
+    const env = compose.services['ahu-1'].environment ?? []
+    expect(env).toContain('BACNET_KIND=ahu')
+  })
+
+  it('defaults BACNET_KIND to generic when kind is not specified (pre-existing scenarios)', () => {
+    const compose = gen(
+      makeScenario([
+        [
+          'bacnet-1',
+          {
+            category: 'sensor',
+            ipAddress: '10.200.10.10',
+            bacnet: { deviceInstance: 1001 }
+          }
+        ]
+      ])
+    )
+    const env = compose.services['bacnet-1'].environment ?? []
+    expect(env).toContain('BACNET_KIND=generic')
+  })
 })
 
 // ── WS_PLC_WEBUIS workstation + PLC injection ─────────────────────────────────

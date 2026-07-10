@@ -75,7 +75,9 @@ const PALETTE: PaletteSection[] = [
     label: 'Field Instruments',
     layers: ['ot'],
     items: [
-      { category: 'sensor', label: 'Sensor' },
+      // Real otforge-bacnet container. Equipment kind (generic/AHU/VAV/chiller/
+      // zone-sensor) chosen after drop in the Properties Panel BACnet section.
+      { category: 'sensor', label: 'BACnet Device' },
       // Kind chosen after drop in the Properties Panel — covers temperature/gas/
       // vibration plus the consolidated former flow-meter/pressure-transmitter/
       // level-transmitter/analyzer/pmu categories.

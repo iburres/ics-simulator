@@ -1522,6 +1522,7 @@ function buildDeviceEnv(
   if (device.bacnet) {
     env.push(`BACNET_DEVICE_INSTANCE=${device.bacnet.deviceInstance}`)
     env.push(`BACNET_PORT=${device.bacnet.port ?? 47808}`)
+    env.push(`BACNET_KIND=${device.bacnet.kind ?? 'generic'}`)
   }
 
   // Phase 11: Physical process simulation — consumed by containers/process-sim/sim.py.
