@@ -383,11 +383,6 @@ const ZEEK_SCRIPTS_OPTIONS: { id: string; label: string; hint: string }[] = [
     id: 'dnp3.zeek',
     label: 'DNP3 analyzer',
     hint: 'Logs DNP3 sessions and function codes to dnp3.log'
-  },
-  {
-    id: 'ics.zeek',
-    label: 'ICS fingerprinting',
-    hint: 'Passive device fingerprinting via protocol banners'
   }
 ]
 

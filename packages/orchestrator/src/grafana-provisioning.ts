@@ -209,10 +209,13 @@ export async function writeGrafanaProvisioning(
             labels: {
               job: 'zeek',
               scenario: projectName,
-              // Zeek writes logs to its working directory (/var/log/zeek) when
-              // started with `zeek -i` — no `current/` subdirectory is created
-              // (that is a zeekctl-managed deployment convention, not standalone).
-              __path__: '/var/log/zeek/*.log'
+              // Zeek's standalone CLI accepts only one -i per process, so
+              // entrypoint.sh runs one Zeek worker per host bridge interface,
+              // each in its own /var/log/zeek/<iface>/ working directory (no
+              // `current/` subdirectory — that is a zeekctl-managed deployment
+              // convention, not standalone). The double-star glob picks up every
+              // worker's log set.
+              __path__: '/var/log/zeek/**/*.log'
             }
           }
         ]

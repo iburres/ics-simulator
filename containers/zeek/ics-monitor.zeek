@@ -1,9 +1,11 @@
-##! ICS Simulator — Zeek monitoring script
-##! Enables Modbus and DNP3 protocol analysis and logs ICS-specific events.
+##! ICS Simulator — shared Zeek monitoring definitions.
+##! Always loaded (via local.zeek) regardless of which optional protocol
+##! analyzers (modbus.zeek, dnp3.zeek) the scenario selects. Provides the
+##! shared ICSMonitor module — the Notice::Type enum, zone classification,
+##! and the generic per-connection ICS summary line — that the protocol-
+##! specific scripts build on.
 
 @load base/frameworks/notice
-@load base/protocols/modbus
-@load base/protocols/dnp3
 
 module ICSMonitor;
 
@@ -31,46 +33,9 @@ function zone_name(a: addr): string {
     return "External";
 }
 
-# ── Modbus logging ────────────────────────────────────────────────────────────
-
-# Zeek 8.x: parameter order is (c, headers, is_orig); ModbusData type was removed.
-event modbus_message(c: connection, headers: ModbusHeaders, is_orig: bool) {
-    local src_zone  = zone_name(c$id$orig_h);
-    local dst_zone  = zone_name(c$id$resp_h);
-
-    if (src_zone != dst_zone) {
-        NOTICE([$note=Cross_Zone_Traffic,
-                $msg=fmt("Modbus %s→%s: %s:%d → %s:%d",
-                         src_zone, dst_zone,
-                         c$id$orig_h, c$id$orig_p,
-                         c$id$resp_h, c$id$resp_p),
-                $conn=c]);
-    }
-}
-
-event modbus_write_multiple_registers_request(c: connection, headers: ModbusHeaders,
-        start_address: count, registers: ModbusRegisters) {
-    NOTICE([$note=Modbus_Write_Registers,
-            $msg=fmt("Modbus WriteMultipleRegs: %s → %s  start=%d  count=%d",
-                     c$id$orig_h, c$id$resp_h, start_address, |registers|),
-            $conn=c]);
-}
-
-# ── DNP3 logging ──────────────────────────────────────────────────────────────
-
-# Zeek 8.x: signature is (c, is_orig, application, fc); fir/fin/con/uns/seq removed.
-event dnp3_application_request_header(c: connection, is_orig: bool,
-        application: count, fc: count) {
-    # FC 3 = DIRECT_OPERATE
-    if (fc == 3) {
-        NOTICE([$note=DNP3_Direct_Operate,
-                $msg=fmt("DNP3 DirectOperate: %s → %s",
-                         c$id$orig_h, c$id$resp_h),
-                $conn=c]);
-    }
-}
-
 # ── Connection summary ────────────────────────────────────────────────────────
+# Port-based classification only — this fires regardless of which optional
+# analyzer scripts are loaded, since it doesn't depend on their event handlers.
 
 event connection_state_remove(c: connection) {
     # Log all ICS protocol connections

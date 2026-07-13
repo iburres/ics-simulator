@@ -1006,4 +1006,13 @@ describe('fixed infrastructure services', () => {
     // br-XXXX Docker bridge interfaces — per-network IP assignments are not used.
     expect(compose.services['suricata'].network_mode).toBe('host')
   })
+
+  it('runs Zeek in host network mode so it sees all simulation bridge interfaces', () => {
+    const compose = gen(infraScenario)
+    // Zeek uses network_mode: 'host', same as Suricata — a container's own veth in
+    // promiscuous mode does not see sibling-container unicast traffic, only the
+    // host-side br-XXXX bridge does. No per-network IP assignments are used.
+    expect(compose.services['zeek'].network_mode).toBe('host')
+    expect(compose.services['zeek'].networks).toBeUndefined()
+  })
 })
