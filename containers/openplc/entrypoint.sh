@@ -25,6 +25,19 @@
 #                          the physics simulator (%IW100 = LEVEL_PV) and drives its
 #                          actuators (%QX100.0-3 = pump/valve commands). Injected by
 #                          compose-generator.ts when a PLC↔process-unit edge exists.
+#   SIS_MBCONFIG_B64     — (Optional, safety-plc only) Base64-encoded, fully-built
+#                          mbconfig.cfg content for M-out-of-N safety voting — one
+#                          Modbus TCP master device per redundant sensor wired
+#                          directly to this safety-plc on the canvas, each reporting
+#                          at %IW100, %IW101, %IW102... in wiring order. Takes
+#                          precedence over PROCESS_SIM_IP if both are somehow set
+#                          (not a real scenario compose-generator.ts produces today —
+#                          see plc-program-gen.ts's buildSafetyVotingProgram for the
+#                          matching ST logic that reads these registers). Unlike
+#                          PROCESS_SIM_IP's single-device case, this file is built
+#                          entirely in TypeScript (compose-generator.ts) rather than
+#                          templated here in bash, so it's unit-testable the same way
+#                          INITIAL_PROGRAM_B64 already is.
 
 set -e
 
@@ -138,10 +151,20 @@ fi
 #   Coils_Start=0, Coils_Size=4  → bool_output[100][0..3] = %QX100.0..100.3
 #   Holding_Registers_Read_Start=0, Size=1 → int_input[100] = %IW100
 #
-# If PROCESS_SIM_IP is NOT set, write a zero-device stub to silence the warning.
-# webserver.py regenerates this file whenever slaves are added via the UI, so
-# the pre-created stub is always safe.
-if [ -n "${PROCESS_SIM_IP}" ]; then
+# If SIS_MBCONFIG_B64 is set (safety-plc with 1+ redundant sensors wired on
+# the canvas — see compose-generator.ts), it already IS the complete file
+# content, built and unit-tested in TypeScript; just decode and write it,
+# matching the INITIAL_PROGRAM_B64 decode pattern above. Checked first so it
+# takes precedence over PROCESS_SIM_IP in the (not currently scenario-
+# generated) case both are somehow set.
+#
+# Otherwise, if PROCESS_SIM_IP is NOT set, write a zero-device stub to
+# silence the warning. webserver.py regenerates this file whenever slaves
+# are added via the UI, so the pre-created stub is always safe.
+if [ -n "${SIS_MBCONFIG_B64}" ]; then
+  echo "${SIS_MBCONFIG_B64}" | base64 -d > /opt/openplc/webserver/mbconfig.cfg
+  echo "[ics-openplc] mbconfig.cfg → safety voting config decoded from SIS_MBCONFIG_B64"
+elif [ -n "${PROCESS_SIM_IP}" ]; then
   cat > /opt/openplc/webserver/mbconfig.cfg << EOF
 Num_Devices = "1"
 Polling_Period = "100"

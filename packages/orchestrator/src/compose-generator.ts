@@ -31,7 +31,11 @@
 import yaml from 'js-yaml'
 import type { OTForgeScenario, DeviceCategory, NetworkZone } from '@otforge/schema'
 import { ZONE_DEFAULTS } from './network-config'
-import { buildAutoPlcProgram } from './plc-program-gen'
+import {
+  buildAutoPlcProgram,
+  buildSafetyVotingProgram,
+  inferSisSensorNodeIds
+} from './plc-program-gen'
 
 /**
  * Maps each DeviceCategory to its Docker image reference on GHCR.
@@ -636,6 +640,61 @@ export function generateCompose(
         }
         if (device.safetyPlc.safeState) sisEnv.push(`SIS_SAFE_STATE=${device.safetyPlc.safeState}`)
         services[serviceName].environment = sisEnv
+      }
+
+      // Real M-out-of-N voting: when a safety-plc is directly wired to 1+
+      // smart-sensor devices, build a full mbconfig.cfg (base64) so OpenPLC's
+      // Modbus-master engine polls each one — the same engine PROCESS_SIM_IP
+      // already drives above, just generalized to N devices instead of one.
+      // Built entirely here (not in entrypoint.sh) so it's unit-testable the
+      // same way INITIAL_PROGRAM_B64/DCS_FIELD_DEVICES already are. Injected
+      // whenever sensors are wired, independent of whether the ST program
+      // itself is auto-generated or authored — the polling is a consequence
+      // of the canvas wiring, not of the program-generation choice above.
+      if (device.category === 'safety-plc') {
+        const sensorNodeIds = inferSisSensorNodeIds(scenario, device.nodeId)
+        if (sensorNodeIds.length > 0) {
+          const deviceBlocks = sensorNodeIds
+            .map((sensorId, i) => {
+              const sensorIp =
+                claimedDeviceIps.get(sensorId) ??
+                resolveDeviceIp(
+                  scenario.devices.devices[sensorId].ipAddress,
+                  scenario,
+                  effectiveZones
+                )
+              return `device${i}.name = "${sanitizeServiceName(sensorId)}"
+device${i}.protocol = "TCP"
+device${i}.slave_id = "1"
+device${i}.address = "${sensorIp}"
+device${i}.IP_Port = "502"
+device${i}.RTU_Baud_Rate = "0"
+device${i}.RTU_Parity = "0"
+device${i}.RTU_Data_Bits = "0"
+device${i}.RTU_Stop_Bits = "0"
+device${i}.RTU_TX_Pause = "0"
+device${i}.Discrete_Inputs_Start = "0"
+device${i}.Discrete_Inputs_Size = "0"
+device${i}.Coils_Start = "0"
+device${i}.Coils_Size = "0"
+device${i}.Input_Registers_Start = "0"
+device${i}.Input_Registers_Size = "0"
+device${i}.Holding_Registers_Read_Start = "0"
+device${i}.Holding_Registers_Read_Size = "1"
+device${i}.Holding_Registers_Start = "0"
+device${i}.Holding_Registers_Size = "0"`
+            })
+            .join('\n\n')
+          const mbconfig = `Num_Devices = "${sensorNodeIds.length}"
+Polling_Period = "100"
+Timeout = "1000"
+
+${deviceBlocks}
+`
+          const sisMbEnv: string[] = services[serviceName].environment ?? []
+          sisMbEnv.push(`SIS_MBCONFIG_B64=${Buffer.from(mbconfig, 'utf8').toString('base64')}`)
+          services[serviceName].environment = sisMbEnv
+        }
       }
     }
 
@@ -1759,10 +1818,21 @@ function buildDeviceEnv(
 
   // PLC program pre-load: authored plcProgram wins; otherwise edge-aware ST so
   // OpenPLC auto-starts (502 binds) with coils for connected pumps/valves.
+  // safety-plc devices wired directly to 1+ smart-sensor inputs get real
+  // M-out-of-N voting logic instead of the generic actuator-coil scaffold —
+  // see buildSafetyVotingProgram in plc-program-gen.ts. Positional (%IW100+i)
+  // addressing needs no IP resolution here; the matching mbconfig.cfg that
+  // actually polls those sensors is built separately, in the outer per-device
+  // loop where claimedDeviceIps/resolveDeviceIp are in scope (see
+  // SIS_MBCONFIG_B64 injection below).
   if (device.category === 'plc' || device.category === 'safety-plc') {
+    const sisSensorNodeIds =
+      device.category === 'safety-plc' ? inferSisSensorNodeIds(scenario, device.nodeId) : []
     const program = device.plcProgram?.source
       ? device.plcProgram
-      : buildAutoPlcProgram(scenario, device.nodeId)
+      : sisSensorNodeIds.length > 0
+        ? buildSafetyVotingProgram(scenario, sisSensorNodeIds, device.safetyPlc?.votingConfig)
+        : buildAutoPlcProgram(scenario, device.nodeId)
     env.push(`INITIAL_PROGRAM_B64=${program.source}`)
     env.push(`PLC_VAR_COUNT=${program.variables?.length ?? 0}`)
   }

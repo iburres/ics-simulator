@@ -1,9 +1,16 @@
 /**
  * Edge-aware OpenPLC ST for PLCs with no authored plcProgram.
  * Coils from coilSource edges + PLC↔pump/valve links; spare coil if none (502 binds).
+ * Also: M-out-of-N safety voting ST for safety-plc devices wired directly to
+ * redundant smart-sensor inputs (see buildSafetyVotingProgram below).
  */
 
-import type { CanvasEdge, OTForgeScenario, PLCProgramConfig } from '@otforge/schema'
+import type {
+  CanvasEdge,
+  OTForgeScenario,
+  PLCProgramConfig,
+  SafetyPlcConfig
+} from '@otforge/schema'
 
 const ACTUATOR = new Set(['pump', 'valve', 'vfd', 'actuator'])
 
@@ -99,6 +106,125 @@ function linkedToProcessUnit(scenario: OTForgeScenario, plcId: string): boolean 
     if (e.data.coilSource?.nodeId === plcId || e.source === plcId || e.target === plcId) return true
   }
   return false
+}
+
+// ── Safety/SIS M-out-of-N voting ─────────────────────────────────────────────
+
+/**
+ * Direct safety-plc↔smart-sensor edges, in edge-iteration order. Unlike
+ * inferPlcCoilBindings' actuator side, there's no coilSource-equivalent to
+ * resolve here — a safety-plc directly wired to a smart-sensor unambiguously
+ * means that sensor feeds the safety vote, so a plain edge scan is enough.
+ */
+export function inferSisSensorNodeIds(scenario: OTForgeScenario, plcId: string): string[] {
+  const ids: string[] = []
+  for (const edge of scenario.visual.edges) {
+    const peer = otherEnd(edge, plcId)
+    if (peer && scenario.devices.devices[peer]?.category === 'smart-sensor') ids.push(peer)
+  }
+  return ids
+}
+
+/**
+ * Parses "MooN" voting config (e.g. "2oo3") into { m, n }, clamping m to the
+ * number of sensors actually wired if fewer are connected than the config
+ * declares. This is also the physically-correct real-world behavior for a
+ * partially-installed SIS — a vote can never require more inputs than exist.
+ * Falls back to requiring all wired sensors to agree (effectively 1oo1 for a
+ * single sensor) when votingConfig is unset or doesn't parse.
+ */
+function parseVotingThreshold(
+  votingConfig: SafetyPlcConfig['votingConfig'] | undefined,
+  wiredCount: number
+): number {
+  const match = votingConfig?.match(/^(\d)oo(\d)$/)
+  const declaredM = match ? parseInt(match[1], 10) : wiredCount
+  return Math.max(1, Math.min(declaredM, wiredCount))
+}
+
+/**
+ * Real M-out-of-N safety voting ST — not a scaffold, actual comparator logic.
+ * Reads each wired sensor's polled Modbus value (populated at %IW100+i by
+ * OpenPLC's Modbus-master engine polling the devices listed in the
+ * SIS_MBCONFIG_B64-generated mbconfig.cfg — see compose-generator.ts), counts
+ * how many exceed the trip threshold, and only de-energizes trip_relay
+ * (Lab04 convention: TRUE=safe/armed, FALSE=tripped) when the vote count
+ * reaches the configured M.
+ *
+ * Threshold defaults to 80% of the wired sensors' own maxValue (they should
+ * share a range, being redundant copies of the same measurement) — a simple,
+ * adjustable convention, not a claimed-precise SIL calculation. An
+ * author-configurable explicit setpoint is a natural follow-up, intentionally
+ * out of scope here.
+ *
+ * Sensor values are x10 fixed-point on the wire (containers/modbus/server.py's
+ * SENSOR_MODBUS_REGISTER convention), so the threshold is scaled by 10 to
+ * compare directly against the raw register value.
+ */
+export function buildSafetyVotingProgram(
+  scenario: OTForgeScenario,
+  sensorNodeIds: string[],
+  votingConfig: SafetyPlcConfig['votingConfig'] | undefined
+): PLCProgramConfig {
+  const m = parseVotingThreshold(votingConfig, sensorNodeIds.length)
+
+  const maxValues = sensorNodeIds
+    .map(id => scenario.devices.devices[id]?.sensor?.maxValue)
+    .filter((v): v is number => typeof v === 'number')
+  const maxValue = maxValues.length > 0 ? Math.max(...maxValues) : 100
+  const thresholdRaw = Math.round(maxValue * 0.8 * 10)
+
+  const vars: string[] = []
+  const logic: string[] = ['  vote_count := 0;']
+  const variables: PLCProgramConfig['variables'] = []
+
+  sensorNodeIds.forEach((nodeId, i) => {
+    const varName = `sensor_${i}`
+    vars.push(`    ${varName} AT %IW${100 + i} : INT;`)
+    variables.push({
+      name: varName,
+      type: 'INT',
+      address: `%IW${100 + i}`,
+      protocol: 'modbus-tcp',
+      protocolAddress: String(scenario.devices.devices[nodeId]?.sensor?.modbusRegister ?? 0)
+    })
+    logic.push(`  IF ${varName} > ${thresholdRaw} THEN vote_count := vote_count + 1; END_IF;`)
+  })
+
+  vars.push('    trip_relay AT %QX0.0 : BOOL;')
+  logic.push(
+    '',
+    `  IF vote_count >= ${m} THEN`,
+    '    trip_relay := FALSE; (* tripped — vote threshold reached *)',
+    '  ELSE',
+    '    trip_relay := TRUE; (* safe/armed *)',
+    '  END_IF;'
+  )
+
+  const st = `(* auto-generated ${m}-out-of-${sensorNodeIds.length} safety voting — override via Save Program *)
+PROGRAM main
+  VAR
+${vars.join('\n')}
+  END_VAR
+  VAR
+    vote_count : INT;
+  END_VAR
+
+${logic.join('\n')}
+
+END_PROGRAM
+
+CONFIGURATION config0
+  TASK task0(INTERVAL := T#100ms, PRIORITY := 0);
+  PROGRAM inst0 WITH task0 : main;
+END_CONFIGURATION
+`
+
+  return {
+    language: 'st',
+    source: toB64(st),
+    variables
+  }
 }
 
 /** Minimal ST + variable map. Author plcProgram.source must win at the call site. */

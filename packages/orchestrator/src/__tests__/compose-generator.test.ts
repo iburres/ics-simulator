@@ -901,6 +901,161 @@ describe('dcs-controller — real device', () => {
   })
 })
 
+describe('safety-plc — M-out-of-N voting logic', () => {
+  function pressureSensor(
+    id: string,
+    ip: string,
+    maxValue = 250,
+    modbusRegister = 0
+  ): [string, DeviceOverrides] {
+    return [
+      id,
+      {
+        category: 'smart-sensor',
+        ipAddress: ip,
+        sensor: {
+          kind: 'pressure',
+          waveform: 'sine',
+          minValue: 0,
+          maxValue,
+          units: 'psi',
+          noisePercent: 3,
+          modbusRegister
+        }
+      }
+    ]
+  }
+
+  it('injects SIS_MBCONFIG_B64 with one device block per wired sensor', () => {
+    const scenario = makeScenario([
+      [
+        'sis-1',
+        { category: 'safety-plc', ipAddress: '10.200.10.10', safetyPlc: { votingConfig: '2oo3' } }
+      ],
+      pressureSensor('p1', '10.200.10.21'),
+      pressureSensor('p2', '10.200.10.22'),
+      pressureSensor('p3', '10.200.10.23')
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'sis-1', target: 'p1', data: { protocol: 'modbus-tcp' } },
+      { id: 'e2', source: 'sis-1', target: 'p2', data: { protocol: 'modbus-tcp' } },
+      { id: 'e3', source: 'sis-1', target: 'p3', data: { protocol: 'modbus-tcp' } }
+    ]
+    const env = gen(scenario).services['sis-1'].environment ?? []
+    const b64 = env.find(v => v.startsWith('SIS_MBCONFIG_B64='))?.slice('SIS_MBCONFIG_B64='.length)
+    expect(b64).toBeDefined()
+    const mbconfig = Buffer.from(b64!, 'base64').toString()
+    expect(mbconfig).toContain('Num_Devices = "3"')
+    expect(mbconfig).toContain('device0.address = "10.200.10.21"')
+    expect(mbconfig).toContain('device1.address = "10.200.10.22"')
+    expect(mbconfig).toContain('device2.address = "10.200.10.23"')
+    // Read-only voting inputs — no coil writes back to the sensors.
+    expect(mbconfig).toContain('device0.Coils_Size = "0"')
+    expect(mbconfig).toContain('device0.Holding_Registers_Read_Size = "1"')
+  })
+
+  it('generates real 2-out-of-3 voting ST logic, not a scaffold', () => {
+    const scenario = makeScenario([
+      [
+        'sis-1',
+        { category: 'safety-plc', ipAddress: '10.200.10.10', safetyPlc: { votingConfig: '2oo3' } }
+      ],
+      pressureSensor('p1', '10.200.10.21', 250),
+      pressureSensor('p2', '10.200.10.22', 250),
+      pressureSensor('p3', '10.200.10.23', 250)
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'sis-1', target: 'p1', data: { protocol: 'modbus-tcp' } },
+      { id: 'e2', source: 'sis-1', target: 'p2', data: { protocol: 'modbus-tcp' } },
+      { id: 'e3', source: 'sis-1', target: 'p3', data: { protocol: 'modbus-tcp' } }
+    ]
+    const env = gen(scenario).services['sis-1'].environment ?? []
+    const b64 = env
+      .find(v => v.startsWith('INITIAL_PROGRAM_B64='))
+      ?.slice('INITIAL_PROGRAM_B64='.length)
+    const st = Buffer.from(b64!, 'base64').toString()
+    expect(st).toContain('sensor_0 AT %IW100 : INT')
+    expect(st).toContain('sensor_1 AT %IW101 : INT')
+    expect(st).toContain('sensor_2 AT %IW102 : INT')
+    // 80% of maxValue 250 = 200 psi, x10 fixed-point on the wire = 2000.
+    expect(st).toContain('IF sensor_0 > 2000 THEN vote_count := vote_count + 1;')
+    expect(st).toContain('IF vote_count >= 2 THEN')
+    expect(st).toContain('trip_relay := FALSE;')
+  })
+
+  it('clamps the vote threshold to the actual wired sensor count when fewer are connected than declared', () => {
+    const scenario = makeScenario([
+      [
+        'sis-1',
+        { category: 'safety-plc', ipAddress: '10.200.10.10', safetyPlc: { votingConfig: '2oo3' } }
+      ],
+      pressureSensor('p1', '10.200.10.21')
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'sis-1', target: 'p1', data: { protocol: 'modbus-tcp' } }
+    ]
+    const env = gen(scenario).services['sis-1'].environment ?? []
+    const b64 = env
+      .find(v => v.startsWith('INITIAL_PROGRAM_B64='))
+      ?.slice('INITIAL_PROGRAM_B64='.length)
+    const st = Buffer.from(b64!, 'base64').toString()
+    // votingConfig declares 2oo3, but only 1 sensor is wired — clamp to 1oo1.
+    expect(st).toContain('IF vote_count >= 1 THEN')
+    expect(st).not.toContain('sensor_1')
+
+    const mbB64 = env
+      .find(v => v.startsWith('SIS_MBCONFIG_B64='))
+      ?.slice('SIS_MBCONFIG_B64='.length)
+    expect(Buffer.from(mbB64!, 'base64').toString()).toContain('Num_Devices = "1"')
+  })
+
+  it('falls back to the generic spare-coil scaffold when no sensors are wired', () => {
+    const compose = gen(
+      makeScenario([
+        [
+          'sis-1',
+          { category: 'safety-plc', ipAddress: '10.200.10.10', safetyPlc: { votingConfig: '2oo3' } }
+        ]
+      ])
+    )
+    const env = compose.services['sis-1'].environment ?? []
+    expect(env.some(v => v.startsWith('SIS_MBCONFIG_B64'))).toBe(false)
+    const b64 = env
+      .find(v => v.startsWith('INITIAL_PROGRAM_B64='))
+      ?.slice('INITIAL_PROGRAM_B64='.length)
+    expect(Buffer.from(b64!, 'base64').toString()).toContain('spare_0')
+  })
+
+  it('still injects SIS_MBCONFIG_B64 for a wired safety-plc even when it has an authored plcProgram', () => {
+    // Matches ICS_Lab_04.otflab's actual sis-1: authored passthrough program,
+    // one pressure sensor wired. The authored ST wins for INITIAL_PROGRAM_B64
+    // (unaffected), but the sensor is still polled since wiring and program
+    // choice are independent concerns.
+    const authoredSt = Buffer.from('PROGRAM main\nEND_PROGRAM\n', 'utf8').toString('base64')
+    const scenario = makeScenario([
+      [
+        'sis-1',
+        {
+          category: 'safety-plc',
+          ipAddress: '10.200.10.10',
+          safetyPlc: { votingConfig: '2oo3' },
+          plcProgram: { language: 'st', source: authoredSt, variables: [] }
+        }
+      ],
+      pressureSensor('p1', '10.200.10.21')
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'sis-1', target: 'p1', data: { protocol: 'modbus-tcp' } }
+    ]
+    const env = gen(scenario).services['sis-1'].environment ?? []
+    const programB64 = env
+      .find(v => v.startsWith('INITIAL_PROGRAM_B64='))
+      ?.slice('INITIAL_PROGRAM_B64='.length)
+    expect(programB64).toBe(authoredSt)
+    expect(env.some(v => v.startsWith('SIS_MBCONFIG_B64'))).toBe(true)
+  })
+})
+
 // ── DNS device env vars ───────────────────────────────────────────────────────
 
 describe('DNS device environment variable injection', () => {
