@@ -1,5 +1,9 @@
 FROM jasonish/suricata:latest
 
+# CVE-2026-58016 (glib2, HIGH) is suppressed in the root .trivyignore — it's
+# baked into this upstream base image (no apt/dnf layer of our own to patch
+# it with) and isn't fixed in jasonish/suricata:latest yet as of 2026-07-21.
+
 # ICS/OT-specific rules — loaded by the rule-files list in otforge.yaml
 COPY ics-rules.rules /etc/suricata/rules/otforge.rules
 
