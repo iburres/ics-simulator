@@ -19,3 +19,15 @@ CVE-2022-26486
 # only for passive traffic analysis on af-packet sockets. Suppressed until
 # an upstream Zeek image rebuild ships a patched libssh2.
 CVE-2026-7598
+
+# glib2 integer underflow in the Suricata base image (CVE-2026-58016).
+# containers/suricata/Dockerfile is `FROM jasonish/suricata:latest` with no
+# apt/dnf layer of our own — glib2 is baked into that upstream AlmaLinux 9.8
+# base at jasonish's build time, so we have no lever to pull the patch in
+# ourselves. Confirmed 2026-07-21 by pulling jasonish/suricata:latest fresh
+# and rescanning directly: it still ships glib2 2.68.4-19.el9_8.1 even
+# though AlmaLinux's own errata already has 2.68.4-19.el9_8.2 — this is not
+# a stale local/CI cache, the upstream image itself hasn't been rebuilt yet.
+# Suppressed until jasonish/suricata publishes a rebuild with the patched
+# glib2.
+CVE-2026-58016
