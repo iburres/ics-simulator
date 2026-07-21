@@ -744,8 +744,23 @@ function registerIPCHandlers(): void {
       const { stdout: afterHead } = await execAsync('git rev-parse HEAD', { cwd: projectRoot })
       const restartRequired = beforeHead.trim() !== afterHead.trim()
 
-      send('Installing dependencies (npm install)...')
-      await runStreamedCommand('npm', ['install'], projectRoot, send)
+      // `npm update`, not `npm install`. A plain install treats an already-
+      // installed version that still satisfies its declared range as "good
+      // enough" and won't touch it, even when a newer non-breaking patch has
+      // been published upstream — confirmed live: a student hit a stale,
+      // vulnerable transitive brace-expansion left behind by repeated
+      // `npm install` runs (had to `rm -rf node_modules` to actually clear
+      // it). `npm update` re-resolves every dependency against its declared
+      // range and upgrades to the newest version that still satisfies it,
+      // fixing exactly that case without deleting anything — important since
+      // this runs from inside the already-running app; a full node_modules
+      // wipe here would try to delete the currently-executing Electron
+      // binary out from under itself. Confirmed live: reproduced the exact
+      // stale-dependency state, ran `npm update` against it, and verified
+      // both `npm audit` (0 vulnerabilities) and a full `build:win` package
+      // (electron-builder run to completion) afterward.
+      send('Updating dependencies (npm update)...')
+      await runStreamedCommand('npm', ['update'], projectRoot, send)
 
       // Tracks the container image pull outcome SEPARATELY from the overall
       // source update — see AppUpdateResult.imageRefresh in packages/schema/
