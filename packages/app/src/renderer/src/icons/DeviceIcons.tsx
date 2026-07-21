@@ -936,6 +936,7 @@ const ICON_MAP: Record<DeviceCategory, () => JSX.Element> = {
   'safety-plc': SafetyPlcSvg, // IEC 61511 Safety PLC / SIS — Triconex, Siemens Safety
   'dcs-controller': DcsControllerSvg, // Distributed Control System — DeltaV, Experion, 800xA
   'legacy-plc': LegacyPlcSvg, // Siemens S7-300/400/1200/1500 via S7comm (Phase 10)
+  'enip-plc': LegacyPlcSvg, // Logix-style CIP PLC via cpppo/scada
   'iec104-rtu': Iec104RtuSvg, // IEC 60870-5-104 RTU via conpot emulation (Phase 10)
   'process-unit': ProcessUnitSvg, // physics-simulated process unit (Phase 11)
   sensor: SensorSvg,

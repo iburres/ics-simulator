@@ -101,6 +101,15 @@ function linkedToProcessUnit(scenario: OTForgeScenario, plcId: string): boolean 
   return false
 }
 
+/** Same coil map as auto-ST, as cpppo `enip_server` tag specs (`name=BOOL`). */
+export function buildEnipTagArgs(scenario: OTForgeScenario, plcId: string): string[] {
+  let bindings = inferPlcCoilBindings(scenario, plcId)
+  if (bindings.length === 0) {
+    bindings = [{ coilIndex: 0, peerId: plcId, varName: 'spare_0' }]
+  }
+  return bindings.map(b => `${b.varName}=BOOL`)
+}
+
 /** Minimal ST + variable map. Author plcProgram.source must win at the call site. */
 export function buildAutoPlcProgram(scenario: OTForgeScenario, plcId: string): PLCProgramConfig {
   let bindings = inferPlcCoilBindings(scenario, plcId)

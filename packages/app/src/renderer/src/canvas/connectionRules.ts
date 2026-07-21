@@ -79,6 +79,7 @@ export const VALID_CONNECTIONS: Partial<
     plc: ['modbus-tcp', 'ethernet-ip'], // peer-to-peer PLC network
     'safety-plc': ['ethernet-ip', 'modbus-tcp'], // PLC shares data with adjacent SIS
     'legacy-plc': ['s7comm', 'modbus-tcp'], // PLC → Siemens S7 peer (Phase 10)
+    'enip-plc': ['ethernet-ip'], // PLC → Logix CIP peer
     'iec104-rtu': ['modbus-tcp', 'modbus-rtu'], // PLC → IEC 104 RTU (Phase 10)
     'process-unit': ['modbus-tcp', 'modbus-rtu'], // PLC polls process simulation (Phase 11)
     hmi: ['modbus-tcp', 'opc-ua'],
@@ -144,6 +145,20 @@ export const VALID_CONNECTIONS: Partial<
   // I/O — see containers/ethernetip/server.py) — the adapter itself never
   // initiates a connection, it only responds to its scanning PLC.
   'ethernetip-adapter': {
+    switch: ['none'],
+    router: ['none'],
+    firewall: ['none'],
+    'ids-ips': ['none']
+  },
+
+  // ── EtherNet/IP Logix PLC (cpppo/scada) — CIP scanner / tag endpoint ─────
+  'enip-plc': {
+    'smart-controller': ['ethernet-ip'], // pumps/valves → edge-derived BOOL tags
+    'smart-sensor': ['ethernet-ip'],
+    'ethernetip-adapter': ['ethernet-ip'], // remote I/O
+    plc: ['ethernet-ip'], // peer OpenPLC / ENIP3-style link
+    hmi: ['ethernet-ip'],
+    'engineering-workstation': ['none', 'ethernet-ip'],
     switch: ['none'],
     router: ['none'],
     firewall: ['none'],
@@ -228,6 +243,7 @@ export const VALID_CONNECTIONS: Partial<
     'safety-plc': ['modbus-tcp', 'opc-ua'], // HMI shows SIS status (read-only)
     'dcs-controller': ['opc-ua', 'modbus-tcp'],
     'legacy-plc': ['s7comm', 'opc-ua'], // HMI reads Siemens S7 via S7comm or OPC-UA (Phase 10)
+    'enip-plc': ['ethernet-ip'], // HMI reads Logix CIP tags
     'iec104-rtu': ['iec-104'], // HMI reads IEC 104 RTU (Phase 10)
     'process-unit': ['modbus-tcp'], // HMI reads process simulation PVs (Phase 11)
     'scada-server': ['opc-ua', 'none'], // HMI pulls display data from SCADA server
@@ -405,6 +421,7 @@ export const VALID_CONNECTIONS: Partial<
     ied: ['dnp3'],
     'safety-plc': ['modbus-tcp', 'modbus-rtu', 'ethernet-ip'],
     'dcs-controller': ['modbus-tcp', 'modbus-rtu', 'ethernet-ip'],
+    'enip-plc': ['ethernet-ip'], // draw field → Logix (tags also work Logix → field)
     'legacy-plc': ['s7comm', 'modbus-tcp', 'modbus-rtu'],
     'iec104-rtu': ['modbus-rtu', 'modbus-tcp'],
     'process-unit': ['modbus-tcp', 'none'], // P&ID: pump/valve/actuator attached to vessel
@@ -425,6 +442,7 @@ export const VALID_CONNECTIONS: Partial<
     ied: ['dnp3', 'iec61850'],
     'safety-plc': ['modbus-tcp', 'modbus-rtu'],
     'dcs-controller': ['modbus-tcp', 'modbus-rtu', 'opc-ua'],
+    'enip-plc': ['ethernet-ip'],
     'legacy-plc': ['s7comm', 'modbus-tcp', 'modbus-rtu'],
     'iec104-rtu': ['modbus-rtu', 'modbus-tcp'],
     historian: ['opc-ua', 'modbus-tcp', 'dnp3'],
@@ -525,6 +543,7 @@ export const VALID_CONNECTIONS: Partial<
     ied: ['none'], // Ethernet to IED configuration tool
     'iec61850-ied': ['none', 'iec61850'], // MMS engineering client (e.g. libiec61850 tools)
     'ethernetip-adapter': ['none', 'ethernet-ip'], // EtherNet/IP config tool (e.g. RSLinx/RSLogix-style client)
+    'enip-plc': ['none', 'ethernet-ip'], // Studio 5000 / RSLinx-style CIP client
     'profinet-device': ['none', 'profinet'], // PROFINET DCP config tool (e.g. Siemens PST-style station naming/IP tool)
     sensor: ['none', 'bacnet'], // BAS engineering client (e.g. bacpypes3 tools)
     'safety-plc': ['none'], // SIS engineering console (TriStation, Safety Builder)
@@ -617,6 +636,7 @@ export const VALID_CONNECTIONS: Partial<
     ied: ['none'],
     'iec61850-ied': ['none'],
     'ethernetip-adapter': ['none'],
+    'enip-plc': ['none'],
     'profinet-device': ['none'],
     'ip-camera': ['none'],
     'safety-plc': ['none'],
@@ -657,6 +677,7 @@ export const VALID_CONNECTIONS: Partial<
     ied: ['none'],
     'iec61850-ied': ['none'],
     'ethernetip-adapter': ['none'],
+    'enip-plc': ['none'],
     'profinet-device': ['none'],
     'ip-camera': ['none'],
     'safety-plc': ['none'],
@@ -697,6 +718,7 @@ export const VALID_CONNECTIONS: Partial<
     ied: ['none'],
     'iec61850-ied': ['none'],
     'ethernetip-adapter': ['none'],
+    'enip-plc': ['none'],
     'profinet-device': ['none'],
     'ip-camera': ['none'],
     'safety-plc': ['none'],
@@ -737,6 +759,7 @@ export const VALID_CONNECTIONS: Partial<
     ied: ['none'],
     'iec61850-ied': ['none'],
     'ethernetip-adapter': ['none'],
+    'enip-plc': ['none'],
     'profinet-device': ['none'],
     'ip-camera': ['none'],
     'safety-plc': ['none'],
@@ -814,6 +837,8 @@ export const VALID_CONNECTIONS: Partial<
     // Unauthenticated Set_Attribute_Single write to the adapter's Output Assembly —
     // the same write path a legitimate scanning PLC uses, but from an unauthorized host.
     'ethernetip-adapter': ['ethernet-ip', 'none'],
+    // CIP Write Tag / List Identity against Logix-style endpoints (cpppo/scada).
+    'enip-plc': ['ethernet-ip', 'none'],
     // Unauthenticated DCP Set — rename the station or reassign its IP with zero
     // credentials, the same way a legitimate engineering tool would configure it.
     'profinet-device': ['profinet', 'none'],
@@ -997,6 +1022,7 @@ const CATEGORY_NAMES: Record<DeviceCategory, string> = {
   'safety-plc': 'Safety PLC / SIS',
   'dcs-controller': 'DCS Controller',
   'legacy-plc': 'Siemens S7 PLC', // Phase 10
+  'enip-plc': 'ControlLogix 1756-L61',
   'iec104-rtu': 'IEC 104 RTU', // Phase 10
   'process-unit': 'Process Unit', // Phase 11
   sensor: 'Sensor',
@@ -1076,6 +1102,7 @@ const DEVICE_CABLE_CAPABILITIES: Record<DeviceCategory, Set<CableType>> = {
   // DCS Controller: larger system, fiber uplinks to DCS node bus are common
   'dcs-controller': new Set(['rs485', 'rs232', 'cat5e', 'cat6', 'mmf', 'smf', 'ac']),
   'legacy-plc': new Set(['rs485', 'rs232', 'cat5e', 'cat6', 'ac']), // Siemens S7 — same ports
+  'enip-plc': new Set(['cat5e', 'cat6', 'cat6a', 'mmf', 'smf', 'ac']), // Logix CIP — Ethernet only
   'iec104-rtu': new Set(['rs485', 'rs232', 'cat5e', 'cat6', 'ac']), // IEC 104 RTU — same ports
   'process-unit': new Set(['cat5e', 'cat6', 'ac']), // process sim panel — Ethernet + mains
 

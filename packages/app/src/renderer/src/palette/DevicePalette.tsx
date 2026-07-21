@@ -117,6 +117,7 @@ const PALETTE: PaletteSection[] = [
     layers: ['ot'],
     items: [
       { category: 'legacy-plc', label: 'Siemens S7 PLC' },
+      { category: 'enip-plc', label: 'ControlLogix 1756-L61' }, // cpppo/scada CIP
       { category: 'iec104-rtu', label: 'IEC 104 RTU' }
     ]
   },

@@ -50,6 +50,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   ied: 'Intelligent Electronic Device (DNP3)',
   'iec61850-ied': 'IEC 61850 IED (MMS) — substation automation',
   'ethernetip-adapter': 'EtherNet/IP Adapter (CIP) — remote I/O',
+  'enip-plc': 'ControlLogix 1756-L61 — EtherNet/IP CIP PLC (cpppo)',
   'profinet-device': 'PROFINET Device (DCP) — discovery/naming only',
   'ip-camera': 'IP Camera — weak default SSH credentials',
   hmi: 'Human Machine Interface',

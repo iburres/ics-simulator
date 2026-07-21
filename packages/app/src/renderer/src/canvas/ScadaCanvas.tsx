@@ -397,6 +397,7 @@ const DEFAULT_PROTOCOLS: Record<DeviceCategory, Protocol[]> = {
   'safety-plc': ['modbus-tcp'], // SIS — same Modbus transport as standard PLC
   'dcs-controller': ['opc-ua'], // DCS prefers OPC-UA upward by convention
   'legacy-plc': ['s7comm'], // Siemens S7 — S7comm primary protocol (Phase 10)
+  'enip-plc': ['ethernet-ip'], // Logix-style CIP PLC (cpppo/scada)
   'iec104-rtu': ['iec-104'], // IEC 60870-5-104 RTU (Phase 10)
   'process-unit': ['modbus-tcp'], // physics process sim — Modbus TCP server (Phase 11)
   // 'sensor' always runs the real otforge-bacnet container (see DEVICE_IMAGES in
@@ -448,6 +449,7 @@ const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   'safety-plc': 'Safety PLC',
   'dcs-controller': 'DCS Ctrl',
   'legacy-plc': 'S7 PLC', // Phase 10
+  'enip-plc': 'ControlLogix',
   'iec104-rtu': 'IEC 104', // Phase 10
   'process-unit': 'Process Unit', // Phase 11
   sensor: 'Sensor',

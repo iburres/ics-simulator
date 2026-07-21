@@ -80,6 +80,7 @@ export type DeviceCategory =
   | 'safety-plc' // Safety Instrumented System / Safety PLC (IEC 61511) — Triconex, Siemens Safety
   | 'dcs-controller' // Distributed Control System controller — Honeywell, Emerson DeltaV, ABB 800xA
   | 'legacy-plc' // Siemens S7-300/400/1200/1500 via S7comm (Phase 10)
+  | 'enip-plc' // Logix-style EtherNet/IP CIP PLC via cpppo/scada (ControlLogix fingerprint)
   | 'iec104-rtu' // IEC 60870-5-104 RTU via conpot emulation (Phase 10)
   | 'process-unit' // Physics-simulated process unit: water tank, pipeline, generator (Phase 11)
   | 'sensor'

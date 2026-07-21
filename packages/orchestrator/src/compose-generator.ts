@@ -31,7 +31,7 @@
 import yaml from 'js-yaml'
 import type { OTForgeScenario, DeviceCategory, NetworkZone } from '@otforge/schema'
 import { ZONE_DEFAULTS } from './network-config'
-import { buildAutoPlcProgram } from './plc-program-gen'
+import { buildAutoPlcProgram, buildEnipTagArgs } from './plc-program-gen'
 
 /**
  * Maps each DeviceCategory to its Docker image reference on GHCR.
@@ -59,6 +59,7 @@ const DEVICE_IMAGES: Record<DeviceCategory, string> = {
   'profinet-device': 'ghcr.io/iburres/otforge-profinet:latest',
   // Phase 10: Conpot legacy device emulation (S7comm + IEC 104)
   'legacy-plc': 'ghcr.io/iburres/otforge-conpot:latest',
+  'enip-plc': 'cpppo/scada', // Logix CIP via cpppo enip_server
   'iec104-rtu': 'ghcr.io/iburres/otforge-conpot:latest',
   // Phase 11: Physics-simulated process unit (water tank, pipeline, generator, generic)
   'process-unit': 'ghcr.io/iburres/otforge-process:latest',
@@ -150,6 +151,7 @@ const DEVICE_LIMITS: Record<DeviceCategory, { memory: number; cpus: string }> = 
   'ethernetip-adapter': { memory: 64, cpus: '0.25' }, // hand-rolled asyncio ENIP/CIP server on Alpine
   'profinet-device': { memory: 64, cpus: '0.25' }, // hand-rolled raw-socket DCP server on Alpine
   'legacy-plc': { memory: 80, cpus: '0.25' }, // pure-Python S7comm on Alpine (Phase 10)
+  'enip-plc': { memory: 128, cpus: '0.25' }, // cpppo/scada Logix CIP endpoint
   'iec104-rtu': { memory: 80, cpus: '0.25' }, // pure-Python IEC 104 on Alpine (Phase 10)
   'process-unit': { memory: 96, cpus: '0.25' }, // pymodbus + physics loop on Alpine (Phase 11)
   'safety-plc': { memory: 128, cpus: '0.5' }, // Safety PLC / SIS — same budget as process PLC
@@ -219,6 +221,8 @@ interface ComposeService {
    * bypassing the need for an image rebuild when routing config changes.
    */
   entrypoint?: string[]
+  /** Overrides Dockerfile CMD. Used for cpppo ENIP tag declarations at boot. */
+  command?: string[]
   /** Per-network IP assignments. Omitted when network_mode is set. */
   networks?: Record<string, { ipv4_address: string }>
   environment: string[] | undefined
@@ -637,6 +641,16 @@ export function generateCompose(
         if (device.safetyPlc.safeState) sisEnv.push(`SIS_SAFE_STATE=${device.safetyPlc.safeState}`)
         services[serviceName].environment = sisEnv
       }
+    }
+
+    // cpppo Logix CIP: edge coil map → BOOL tags on the enip_server command line.
+    if (device.category === 'enip-plc') {
+      const port = device.ethernetip?.port ?? 44818
+      services[serviceName].entrypoint = ['python', '-m', 'cpppo.server.enip']
+      services[serviceName].command = [
+        `--address=0.0.0.0:${port}`,
+        ...buildEnipTagArgs(scenario, device.nodeId)
+      ]
     }
 
     // Controller-specific env vars — injected for smart-controller devices only.

@@ -43,6 +43,7 @@ interface ParsedService {
   ports?: string[]
   volumes?: string[]
   entrypoint?: string[]
+  command?: string[]
   deploy: { resources: { limits: { memory: string; cpus: string } } }
 }
 
@@ -822,6 +823,25 @@ describe('environment variable injection', () => {
       .find(v => v.startsWith('INITIAL_PROGRAM_B64='))
       ?.slice('INITIAL_PROGRAM_B64='.length)
     expect(Buffer.from(b64!, 'base64').toString()).toContain('pump_1_run AT %QX0.0')
+  })
+})
+
+describe('enip-plc — cpppo coil tags', () => {
+  it('injects cpppo command tags from pump/valve edges', () => {
+    const scenario = makeScenario([
+      ['logix-1', { category: 'enip-plc', ipAddress: '10.200.10.12' }],
+      [
+        'pump-1',
+        { category: 'smart-controller', ipAddress: '10.200.10.11', controller: { kind: 'pump' } }
+      ]
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'logix-1', target: 'pump-1', data: { protocol: 'ethernet-ip' } }
+    ]
+    const svc = gen(scenario).services['logix-1']
+    expect(svc.image).toBe('cpppo/scada')
+    expect(svc.entrypoint).toEqual(['python', '-m', 'cpppo.server.enip'])
+    expect(svc.command).toEqual(['--address=0.0.0.0:44818', 'pump_1_run=BOOL'])
   })
 })
 
