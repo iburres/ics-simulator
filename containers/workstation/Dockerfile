@@ -28,7 +28,17 @@ ARG DEBIAN_FRONTEND=noninteractive
 # Running apt-get upgrade here ensures every subsequent layer starts from a
 # fully-patched baseline. Fixes CVE-2026-45447 (OpenSSL heap use-after-free
 # in PKCS7_verify, fixed in openssl/libssl 3.0.2-0ubuntu1.25).
-RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+#
+# SECURITY_REFRESH busts this layer's build cache (and every layer after it)
+# so a rebuild re-runs against the *current* Ubuntu repos rather than reusing
+# a stale cached layer — same pattern as containers/zeek/Dockerfile. Bump the
+# date whenever a newly published security update needs to be pulled.
+# 2026-07-21: linux-libc-dev 5.15.0-186.196 fixes CVE-2026-52955/52993/53002
+# (CRITICAL) plus a batch of HIGH kernel-header CVEs; not in the repos when
+# this image was last built.
+ARG SECURITY_REFRESH=2026-07-21
+RUN echo "security-refresh: ${SECURITY_REFRESH}" \
+    && apt-get update && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Layer 1: Core system + desktop environment ─────────────────────────────────
