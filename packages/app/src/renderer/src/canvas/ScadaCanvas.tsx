@@ -252,23 +252,18 @@ const CANVAS_H = GRID_ROWS * CELL_SIZE // 2000 px at zoom = 1
 const CANVAS_BOUNDS = { x: 0, y: 0, width: CANVAS_W, height: CANVAS_H }
 
 /**
- * How much closer than a plain "fit the whole grid" view should start.
- * Applied as a zoom multiplier after fitBounds rather than shrinking
- * CANVAS_BOUNDS itself -- shrinking the fit rect would risk clipping devices
- * placed in the outer half of the grid, whereas zooming in from the already-
- * correct full-grid fit (same center point) never cuts anything off.
- */
-const FIT_ZOOM_BOOST = 1.5
-
-/**
- * Fits the full canvas grid into view, then zooms in further by FIT_ZOOM_BOOST
- * around the same center point. Used by every fitBounds call site (initial
- * mount, layer switch, window resize, empty-scenario placeholder) so the
- * "too zoomed out" feeling is fixed consistently everywhere, not just on startup.
+ * Fits visible nodes into view (empty canvas → full grid). Used on mount,
+ * layer switch, window resize, and empty-scenario placeholder.
  */
 function fitCanvasView(instance: ReactFlowInstance): void {
-  instance.fitBounds(CANVAS_BOUNDS, { padding: 0.04, duration: 0 })
-  instance.zoomTo(instance.getZoom() * FIT_ZOOM_BOOST, { duration: 0 })
+  void (async () => {
+    if (instance.getNodes().length === 0) {
+      await instance.fitBounds(CANVAS_BOUNDS, { padding: 0.04, duration: 0 })
+      return
+    }
+    await instance.fitView({ padding: 0.2, duration: 0 })
+    await instance.zoomTo(instance.getZoom() / (1.2 * 1.2), { duration: 0 })
+  })()
 }
 
 /**
@@ -855,6 +850,7 @@ export function ScadaCanvas({
    * which re-centers the viewport — making the device appear to "snap to center".
    */
   const prevLayerRef = useRef<NetworkZone | null>(null)
+  const prevScenarioKeyRef = useRef<string | null>(null)
 
   /**
    * Timer ref for auto-dismissing the invalid connection tooltip.
@@ -1130,6 +1126,7 @@ export function ScadaCanvas({
         if (rfInstance.current) fitCanvasView(rfInstance.current)
       }, 100)
       prevLayerRef.current = null
+      prevScenarioKeyRef.current = null
       return
     }
     const deviceNodes = scenarioToNodes(scenario, activeLayer)
@@ -1204,6 +1201,11 @@ export function ScadaCanvas({
     )
     // Only re-fit when the active layer tab changes — not on every node/edge mutation.
     // Scenario edits (drops, drags, connections) must not re-center the viewport.
+    const scenarioKey = `${scenario.meta.name}\0${scenario.meta.createdAt}`
+    if (scenarioKey !== prevScenarioKeyRef.current) {
+      prevScenarioKeyRef.current = scenarioKey
+      prevLayerRef.current = null
+    }
     if (prevLayerRef.current !== activeLayer) {
       prevLayerRef.current = activeLayer
       setTimeout(() => {

@@ -1976,7 +1976,7 @@ export default function App() {
             ) : (
               !simIsRunning && (
                 <button
-                  className={`btn btn-sm ${hasAttackMachine ? 'btn-attack-active' : 'btn-attack-add'}`}
+                  className={`btn btn-sm ${hasAttackMachine ? 'btn-danger' : 'btn-attack-add'}`}
                   onClick={hasAttackMachine ? handleAttackMachineRemove : handleAttackMachineAdd}
                   disabled={simIsStarting || simIsStopping}
                   title={

@@ -3668,11 +3668,6 @@ code.prop-value {
  *  .btn-attack-add    — sim stopped, no machine yet. Neutral secondary style with
  *                       a red hover so it reads as "add an offensive capability."
  *
- *  .btn-attack-active — sim stopped, machine IS in the scenario. Full bright red
- *                       matching btn-danger so it's clearly visible as a loaded
- *                       indicator. pointer-events:none avoids using disabled=""
- *                       which would let the browser dim the color automatically.
- *
  *  .btn-attack-launch — sim running. Identical to btn-danger — same red border,
  *                       text, and hover fill as the Stop Simulation button.
  */
@@ -3708,8 +3703,7 @@ code.prop-value {
  *  .btn-attack-add      — sim idle, no machine yet. Teal outline — same primary
  *                         visual weight as Run Simulation; click to add.
  *
- *  .btn-attack-active   — sim idle, machine IS in the scenario. Solid teal
- *                         fill confirms it's configured; click to remove.
+ *  Remove (has machine) — shared .btn-danger (same as Stop Simulation).
  *
  *  .btn-attack-launch   — sim running, not yet opened. Solid teal fill matches
  *                         Run Simulation; click to open the Kali window.
@@ -3728,19 +3722,6 @@ code.prop-value {
 .btn-attack-add:hover:not(:disabled) {
   background: var(--accent-teal);
   color: #0d1117;
-}
-
-/* "⚔ Attack Ready" — idle, machine is configured. Solid teal — click to remove. */
-.btn-attack-active {
-  background: var(--accent-teal);
-  border: 1px solid var(--accent-teal);
-  color: #0d1117;
-  font-weight: 600;
-}
-
-.btn-attack-active:hover:not(:disabled) {
-  background: transparent;
-  color: var(--accent-teal);
 }
 
 /*
