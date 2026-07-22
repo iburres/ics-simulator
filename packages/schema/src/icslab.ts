@@ -25,6 +25,7 @@ export type Protocol =
   | 's7comm' // Siemens S7 Communication (S7-300/400/1200/1500, port 102)
   | 'iec-104' // IEC 60870-5-104 telecontrol protocol (port 2404)
   | 'mqtt' // Message Queuing Telemetry Transport — IIoT sensors, cloud gateways, broker-based pub/sub
+  | 'c37118' // IEEE C37.118 synchrophasor protocol — PMU/PDC wide-area grid monitoring (port 4712)
   | 'none'
 
 /**
@@ -80,6 +81,7 @@ export type DeviceCategory =
   | 'safety-plc' // Safety Instrumented System / Safety PLC (IEC 61511) — Triconex, Siemens Safety
   | 'dcs-controller' // Distributed Control System controller — Honeywell, Emerson DeltaV, ABB 800xA
   | 'batch-controller' // ISA-88 batch control — fixed 5-phase (charge/heat/react/cool/discharge) recipe engine
+  | 'pmu' // Phasor Measurement Unit — real IEEE C37.118 synchrophasor protocol, polls a wired generator process-unit
   | 'legacy-plc' // Siemens S7-300/400/1200/1500 via S7comm (Phase 10)
   | 'iec104-rtu' // IEC 60870-5-104 RTU via conpot emulation (Phase 10)
   | 'process-unit' // Physics-simulated process unit: water tank, pipeline, generator (Phase 11)
@@ -598,6 +600,27 @@ export interface BatchConfig {
 }
 
 /**
+ * IEEE C37.118 PMU (Phasor Measurement Unit) configuration.
+ *
+ * These fields are informational — they are injected as environment
+ * variables into the otforge-pmu container so students can see the PMU's
+ * station identity in the properties panel and container logs. The PMU
+ * polls a wired generator process-unit's real freq/voltage/power/reactive
+ * registers over Modbus TCP and re-exposes them as a real C37.118 CONFIG-2/
+ * DATA/HEADER frame stream — see containers/pmu/server.py.
+ */
+export interface PmuConfig {
+  /** C37.118 IDCODE — the PMU/station identifier a PDC uses to distinguish streams (default 1). */
+  idCode?: number
+  /** C37.118 STN field — 16-char station name shown in the CONFIG-2 frame (default "OTForge PMU"). */
+  stationName?: string
+  /** Data frame reporting rate in frames/second — real PMUs commonly use 10/25/30/50/60 (default 30). */
+  dataRateFps?: number
+  /** Nominal system frequency — 60 Hz (Americas) or 50 Hz (most of the rest of the world) (default 60). */
+  nominalFreqHz?: 50 | 60
+}
+
+/**
  * Telemetry-focused communication link used by field RTUs to reach the SCADA master.
  * RTUs are deployed in remote or harsh environments (pipelines, power grid, water)
  * where cellular, radio, and satellite are the primary uplink choices.
@@ -812,6 +835,7 @@ export interface DeviceConfig {
   plcProgram?: PLCProgramConfig
   safetyPlc?: SafetyPlcConfig // SIS config for safety-plc devices
   batch?: BatchConfig // ISA-88 recipe config for batch-controller devices
+  pmu?: PmuConfig // IEEE C37.118 station identity for pmu devices
   rtuConfig?: RtuConfig // RTU deployment configuration (rtu, iec104-rtu devices)
   sensor?: SensorConfig // Waveform simulation parameters for smart-sensor canvas nodes (real container)
   controller?: ControllerConfig // Educational parameters for smart-controller canvas nodes (real container)

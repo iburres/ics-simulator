@@ -110,6 +110,7 @@ const PROTOCOL_COLORS: Partial<Record<Protocol, string>> = {
   'iec-104': '#e3b341', // IEC 60870-5-104 — gold (Phase 10)
   mqtt: '#e87040', // MQTT — orange; IIoT broker-based pub/sub
   profinet: '#00a0e3', // PROFINET — Siemens/PI brand blue
+  c37118: '#db61a2', // IEEE C37.118 synchrophasor — matches the pmu device's palette color
   none: '#484f58'
 }
 

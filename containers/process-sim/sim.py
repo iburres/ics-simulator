@@ -19,7 +19,7 @@ Sensor Holding Registers — written by physics loop, read by PLC (FC3 / FC4):
   HR 3   PRESSURE_PV     ×0.01 bar     0–10000 → 0.00–100.00 bar
   HR 4   TEMPERATURE_PV  ×0.1 °C       0–2000  → 0.0–200.0 °C
   HR 5   STATUS_WORD     bitmask       See STATUS_* constants below
-  HR 6   FREQ_PV         ×0.01 Hz      4500–5500 → 45.00–55.00 Hz
+  HR 6   FREQ_PV         ×0.01 Hz      generator only — clamped to GEN_FREQ_BASE ±3–5 Hz
   HR 7   VOLTAGE_PCT     ×0.01 %       0–12000 → 0.00–120.00 % of rated
   HR 8   POWER_PV        ×0.1 MW       0–10000 → 0.0–1000.0 MW
   HR 9   REACTIVE_PV     ×0.1 MVAR     0–10000 → 0.0–1000.0 MVAR
@@ -654,9 +654,18 @@ def update_generator(state: PhysicsState, coils: list[bool],
     p_mech_sp = (load_sp_raw / 10.0) if load_sp_raw > 0 else (GEN_RATED_MW * 0.5)
 
     if not breaker_closed:
-        # Off-line: coast to synchronous speed, voltage holds at rated
+        # Off-line: coast to synchronous speed, voltage holds at rated.
+        # Clamp is relative to GEN_FREQ_BASE (not hardcoded 45-55) — a
+        # hardcoded absolute clamp below the default 60 Hz nominal made it
+        # mathematically impossible for an off-line generator to ever
+        # actually reach synchronous speed (df→0 as freq_hz→GEN_FREQ_BASE,
+        # but the old ceiling of 55.0 clamped it away from 60.0 on literally
+        # the first tick) — the exact opposite of what this branch's own
+        # comment says it does. Found live-verifying containers/pmu, which
+        # was the first device to closely observe an off-line generator's
+        # frequency at startup.
         df = (GEN_FREQ_BASE - state.freq_hz) * 0.3 * dt
-        state.freq_hz   = max(45.0, min(55.0, state.freq_hz + df))
+        state.freq_hz   = max(GEN_FREQ_BASE - 5.0, min(GEN_FREQ_BASE + 5.0, state.freq_hz + df))
         state.power_mw  = 0.0
         state.reactive_mvar = 0.0
         state.voltage_pct   = 100.0
@@ -676,8 +685,13 @@ def update_generator(state: PhysicsState, coils: list[bool],
     p_load = state.power_mw + demand_noise
 
     # ── Swing equation: frequency deviation ──────────────────────────────────
+    # Clamp is relative to GEN_FREQ_BASE (±3 Hz), not hardcoded 47-53 — that
+    # hardcoded band was only ever centered on the default 50 Hz case (see
+    # the matching fix + comment on the off-line branch above); any scenario
+    # configuring GEN_FREQ_BASE=60 (the common US-convention case) got an
+    # operating band that excluded its own nominal frequency entirely.
     df_dt = (p_mech_sp - p_load) / (2.0 * GEN_INERTIA_H * GEN_FREQ_BASE)
-    state.freq_hz = max(47.0, min(53.0, state.freq_hz + df_dt * dt))
+    state.freq_hz = max(GEN_FREQ_BASE - 3.0, min(GEN_FREQ_BASE + 3.0, state.freq_hz + df_dt * dt))
 
     # ── AVR: voltage droop ────────────────────────────────────────────────────
     v_target = (1.0 - 0.05 * (state.power_mw / GEN_RATED_MW)) * 100.0

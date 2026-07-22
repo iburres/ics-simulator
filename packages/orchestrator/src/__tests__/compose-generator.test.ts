@@ -901,6 +901,90 @@ describe('dcs-controller — real device', () => {
   })
 })
 
+describe('pmu — real IEEE C37.118 device', () => {
+  function generatorUnit(id: string, ip: string): [string, DeviceOverrides] {
+    return [
+      id,
+      { category: 'process-unit', ipAddress: ip, processUnit: { processType: 'generator' } }
+    ]
+  }
+
+  it('gives pmu the otforge-pmu image — a real container, not a stub', () => {
+    const compose = gen(makeScenario([['pmu-1', { category: 'pmu', ipAddress: '10.200.10.10' }]]))
+    expect(compose.services['pmu-1']).toBeDefined()
+    expect(compose.services['pmu-1'].image).toBe('ghcr.io/iburres/otforge-pmu:latest')
+  })
+
+  it('assigns the 64m/0.25 resource limit to pmu', () => {
+    const compose = gen(makeScenario([['pmu-1', { category: 'pmu', ipAddress: '10.200.10.10' }]]))
+    expect(compose.services['pmu-1'].deploy.resources.limits.memory).toBe('64m')
+    expect(compose.services['pmu-1'].deploy.resources.limits.cpus).toBe('0.25')
+  })
+
+  it('injects GENERATOR_IP from a direct edge to a generator process-unit', () => {
+    const scenario = makeScenario([
+      ['pmu-1', { category: 'pmu', ipAddress: '10.200.10.10' }],
+      generatorUnit('gen-1', '10.200.10.20')
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'pmu-1', target: 'gen-1', data: { protocol: 'modbus-tcp' } }
+    ]
+    const env = gen(scenario).services['pmu-1'].environment ?? []
+    expect(env).toContain('GENERATOR_IP=10.200.10.20')
+  })
+
+  it('omits GENERATOR_IP entirely when the pmu has no connecting edges', () => {
+    const compose = gen(makeScenario([['pmu-1', { category: 'pmu', ipAddress: '10.200.10.10' }]]))
+    const env = compose.services['pmu-1'].environment ?? []
+    expect(env.some(v => v.startsWith('GENERATOR_IP'))).toBe(false)
+  })
+
+  it('does not wire GENERATOR_IP to a non-generator process-unit (e.g. water-tank)', () => {
+    const scenario = makeScenario([
+      ['pmu-1', { category: 'pmu', ipAddress: '10.200.10.10' }],
+      [
+        'tank-1',
+        {
+          category: 'process-unit',
+          ipAddress: '10.200.10.20',
+          processUnit: { processType: 'water-tank' }
+        }
+      ]
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'pmu-1', target: 'tank-1', data: { protocol: 'modbus-tcp' } }
+    ]
+    const env = gen(scenario).services['pmu-1'].environment ?? []
+    expect(env.some(v => v.startsWith('GENERATOR_IP'))).toBe(false)
+  })
+
+  it('injects PMU_* station-identity env vars from device.pmu config', () => {
+    const compose = gen(
+      makeScenario([
+        [
+          'pmu-1',
+          {
+            category: 'pmu',
+            ipAddress: '10.200.10.10',
+            pmu: { idCode: 42, stationName: 'North Bus PMU', dataRateFps: 60, nominalFreqHz: 50 }
+          }
+        ]
+      ])
+    )
+    const env = compose.services['pmu-1'].environment ?? []
+    expect(env).toContain('PMU_IDCODE=42')
+    expect(env).toContain('PMU_STATION_NAME=North Bus PMU')
+    expect(env).toContain('PMU_DATA_RATE_FPS=60')
+    expect(env).toContain('PMU_NOMINAL_FREQ_HZ=50')
+  })
+
+  it('omits PMU_* env vars when device.pmu is not set', () => {
+    const compose = gen(makeScenario([['pmu-1', { category: 'pmu', ipAddress: '10.200.10.10' }]]))
+    const env = compose.services['pmu-1'].environment ?? []
+    expect(env.some(v => v.startsWith('PMU_'))).toBe(false)
+  })
+})
+
 describe('safety-plc — M-out-of-N voting logic', () => {
   function pressureSensor(
     id: string,
