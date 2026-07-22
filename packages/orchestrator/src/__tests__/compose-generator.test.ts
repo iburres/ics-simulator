@@ -1056,6 +1056,121 @@ describe('safety-plc — M-out-of-N voting logic', () => {
   })
 })
 
+describe('batch-controller — ISA-88 phase sequencer', () => {
+  function batchScenario(
+    batchOverrides: Record<string, unknown> = {},
+    reactorOverrides: Record<string, unknown> = {}
+  ) {
+    const scenario = makeScenario([
+      [
+        'batch-1',
+        {
+          category: 'batch-controller',
+          ipAddress: '10.200.10.10',
+          batch: {
+            chargeTargetPct: 80,
+            heatSetpointC: 70,
+            reactHoldSec: 60,
+            coolSetpointC: 30,
+            dischargeTargetPct: 5,
+            ...batchOverrides
+          }
+        }
+      ],
+      [
+        'reactor-1',
+        {
+          category: 'process-unit',
+          ipAddress: '10.200.10.20',
+          processUnit: {
+            processType: 'batch-reactor',
+            tankVolumeL: 1000,
+            tankAreaM2: 1.0,
+            ...reactorOverrides
+          }
+        }
+      ]
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'batch-1', target: 'reactor-1', data: { protocol: 'modbus-tcp' } }
+    ]
+    return scenario
+  }
+
+  it('injects PROCESS_SIM_IP for a batch-controller wired to a batch-reactor', () => {
+    const env = gen(batchScenario()).services['batch-1'].environment ?? []
+    expect(env).toContain('PROCESS_SIM_IP=10.200.10.20')
+  })
+
+  it('generates real ISA-88 phase-sequencer ST, not a scaffold', () => {
+    const env = gen(batchScenario()).services['batch-1'].environment ?? []
+    const b64 = env
+      .find(v => v.startsWith('INITIAL_PROGRAM_B64='))
+      ?.slice('INITIAL_PROGRAM_B64='.length)
+    const st = Buffer.from(b64!, 'base64').toString()
+    expect(st).toContain('level_pv AT %IW100 : INT')
+    expect(st).toContain('temp_pv AT %IW104 : INT')
+    expect(st).toContain('batch_state AT %QW0 : INT')
+    expect(st).toContain('current_phase AT %QW1 : INT')
+    // 80% of a 1000L/1.0m² vessel = 0.80 m level, ×100 fixed-point = 80.
+    expect(st).toContain('IF level_pv >= 80 THEN current_phase := 2;')
+    // 70.0°C heat setpoint, ×10 fixed-point = 700.
+    expect(st).toContain('IF temp_pv >= 700 THEN current_phase := 3;')
+    // 60s hold at a fixed T#100ms scan = 600 ticks.
+    expect(st).toContain('IF react_ticks >= 600 THEN current_phase := 4;')
+    // 30.0°C cool setpoint, ×10 fixed-point = 300.
+    expect(st).toContain('IF temp_pv <= 300 THEN current_phase := 5;')
+    // 5% of a 1000L/1.0m² vessel = 0.05 m level, ×100 fixed-point = 5.
+    expect(st).toContain('IF level_pv <= 5 THEN')
+  })
+
+  it('injects BATCH_* informational env vars when device.batch is set', () => {
+    const env =
+      gen(batchScenario({ recipeName: 'Product A' })).services['batch-1'].environment ?? []
+    expect(env).toContain('BATCH_RECIPE_NAME=Product A')
+    expect(env).toContain('BATCH_CHARGE_TARGET_PCT=80')
+    expect(env).toContain('BATCH_HEAT_SETPOINT_C=70')
+  })
+
+  it('falls back to the generic actuator scaffold when not wired to a batch-reactor', () => {
+    const compose = gen(
+      makeScenario([
+        ['batch-1', { category: 'batch-controller', ipAddress: '10.200.10.10', batch: {} }]
+      ])
+    )
+    const env = compose.services['batch-1'].environment ?? []
+    const b64 = env
+      .find(v => v.startsWith('INITIAL_PROGRAM_B64='))
+      ?.slice('INITIAL_PROGRAM_B64='.length)
+    expect(Buffer.from(b64!, 'base64').toString()).toContain('spare_0')
+  })
+
+  it('does not generate batch ST for a batch-controller wired to a non-batch process-unit', () => {
+    const scenario = makeScenario([
+      ['batch-1', { category: 'batch-controller', ipAddress: '10.200.10.10', batch: {} }],
+      [
+        'tank-1',
+        {
+          category: 'process-unit',
+          ipAddress: '10.200.10.20',
+          processUnit: { processType: 'water-tank' }
+        }
+      ]
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'batch-1', target: 'tank-1', data: { protocol: 'modbus-tcp' } }
+    ]
+    const env = gen(scenario).services['batch-1'].environment ?? []
+    const b64 = env
+      .find(v => v.startsWith('INITIAL_PROGRAM_B64='))
+      ?.slice('INITIAL_PROGRAM_B64='.length)
+    // Still gets PROCESS_SIM_IP (plain-PLC-style wiring), but the generic
+    // actuator scaffold, not the batch phase-sequencer.
+    expect(env).toContain('PROCESS_SIM_IP=10.200.10.20')
+    expect(Buffer.from(b64!, 'base64').toString()).toContain('spare_0')
+  })
+})
+
 // ── DNS device env vars ───────────────────────────────────────────────────────
 
 describe('DNS device environment variable injection', () => {

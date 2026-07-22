@@ -79,6 +79,7 @@ export type DeviceCategory =
   | 'profinet-device' // PROFINET IO device — DCP discovery/naming/IP assignment only, no AR establishment or RT cyclic I/O
   | 'safety-plc' // Safety Instrumented System / Safety PLC (IEC 61511) — Triconex, Siemens Safety
   | 'dcs-controller' // Distributed Control System controller — Honeywell, Emerson DeltaV, ABB 800xA
+  | 'batch-controller' // ISA-88 batch control — fixed 5-phase (charge/heat/react/cool/discharge) recipe engine
   | 'legacy-plc' // Siemens S7-300/400/1200/1500 via S7comm (Phase 10)
   | 'iec104-rtu' // IEC 60870-5-104 RTU via conpot emulation (Phase 10)
   | 'process-unit' // Physics-simulated process unit: water tank, pipeline, generator (Phase 11)
@@ -436,7 +437,7 @@ export interface PLCProgramConfig {
  */
 export interface ProcessUnitConfig {
   /** Physics model to run inside the container. */
-  processType: 'water-tank' | 'pipeline' | 'generator' | 'generic'
+  processType: 'water-tank' | 'pipeline' | 'generator' | 'generic' | 'batch-reactor'
   /** Simulation timestep in milliseconds (default 1000). Lower = faster transients. */
   simDtMs?: number
 
@@ -465,6 +466,17 @@ export interface ProcessUnitConfig {
   pipelineVolumeL?: number
   /** Maximum pump flow rate into the pipeline in L/min (default 300). */
   pipelinePumpMaxLpm?: number
+
+  // ── Batch reactor parameters ───────────────────────────────────────────────
+  // Vessel volume/geometry reuse tankVolumeL/tankAreaM2 above (a batch reactor
+  // is physically a vessel, same as water-tank); charge/discharge flow reuse
+  // valveFlowMaxLpm/pumpFlowMaxLpm respectively. Only the heat/cool dynamics
+  // need new fields — there is no water-tank equivalent for a driven heater
+  // or cooling jacket.
+  /** Heater-on temperature rise rate in °C/s at the vessel (default 0.05). */
+  heaterRateCPerSec?: number
+  /** Cooling-jacket-on temperature fall rate in °C/s, added on top of ambient Newton cooling (default 0.08). */
+  coolingRateCPerSec?: number
 }
 
 /**
@@ -556,6 +568,33 @@ export interface SafetyPlcConfig {
    * Example: "Close SDV-101, de-energize ESD relay K1"
    */
   safeState?: string
+}
+
+/**
+ * ISA-88 batch control configuration for batch-controller devices.
+ *
+ * v1 deliberately models a FIXED 5-phase unit procedure — Charge → Heat →
+ * React → Cool → Discharge — rather than an author-editable phase list, so
+ * configuring a recipe is just filling in these numeric fields (same shape
+ * as SafetyPlcConfig), no new phase-editing UI required. The generated ST
+ * (buildBatchProgram in plc-program-gen.ts) implements the real ISA-88
+ * state model — IDLE/RUNNING/HELD/ABORTED/COMPLETE — against whichever
+ * process-unit (processType 'batch-reactor') the batch-controller is wired
+ * to, the same way SafetyPlcConfig's votingConfig drives buildSafetyVotingProgram.
+ */
+export interface BatchConfig {
+  /** Plain-language recipe name, e.g. "Product A — Standard Batch". Displayed in the properties panel. */
+  recipeName?: string
+  /** CHARGE phase target fill level, as % of the reactor's tankVolumeL (default 80). */
+  chargeTargetPct?: number
+  /** HEAT phase target temperature in °C (default 70). */
+  heatSetpointC?: number
+  /** REACT phase hold duration once heatSetpointC is reached, in seconds (default 60). */
+  reactHoldSec?: number
+  /** COOL phase target temperature in °C before discharge is permitted (default 30). */
+  coolSetpointC?: number
+  /** DISCHARGE phase target fill level, as % of tankVolumeL, to consider the batch drained (default 5). */
+  dischargeTargetPct?: number
 }
 
 /**
@@ -772,6 +811,7 @@ export interface DeviceConfig {
   mail?: MailConfig // Mail server config (email-server devices)
   plcProgram?: PLCProgramConfig
   safetyPlc?: SafetyPlcConfig // SIS config for safety-plc devices
+  batch?: BatchConfig // ISA-88 recipe config for batch-controller devices
   rtuConfig?: RtuConfig // RTU deployment configuration (rtu, iec104-rtu devices)
   sensor?: SensorConfig // Waveform simulation parameters for smart-sensor canvas nodes (real container)
   controller?: ControllerConfig // Educational parameters for smart-controller canvas nodes (real container)

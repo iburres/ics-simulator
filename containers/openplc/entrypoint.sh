@@ -144,12 +144,17 @@ fi
 #
 # If PROCESS_SIM_IP is set (injected by compose-generator when this PLC is
 # connected to a process-unit in the scenario), configure a single Modbus TCP
-# slave pointing at the physics simulator so the ST program can read LEVEL_PV
-# (%IW100) and drive PUMP/VALVE commands (%QX100.x) via the Modbus master.
+# slave pointing at the physics simulator so the ST program can read PVs
+# (%IW100+) and drive commands (%QX100.x) via the Modbus master.
+#
+# Sized for the richest consumer (batch-controller, 6 coils + 5 input
+# registers) rather than per-category — plain plc/safety-plc/generator/
+# pipeline scenarios simply read/write the extra positions and ignore them
+# (process-sim's coil/register blocks are always 256 wide, so this is safe).
 #
 # Address mapping (from modbus_master.cpp updateBuffersIn_MB / updateBuffersOut_MB):
-#   Coils_Start=0, Coils_Size=4  → bool_output[100][0..3] = %QX100.0..100.3
-#   Holding_Registers_Read_Start=0, Size=1 → int_input[100] = %IW100
+#   Coils_Start=0, Coils_Size=6              → bool_output[100][0..5] = %QX100.0..100.5
+#   Holding_Registers_Read_Start=0, Size=5   → int_input[100..104]   = %IW100..%IW104
 #
 # If SIS_MBCONFIG_B64 is set (safety-plc with 1+ redundant sensors wired on
 # the canvas — see compose-generator.ts), it already IS the complete file
@@ -184,11 +189,11 @@ device0.RTU_TX_Pause = "0"
 device0.Discrete_Inputs_Start = "0"
 device0.Discrete_Inputs_Size = "0"
 device0.Coils_Start = "0"
-device0.Coils_Size = "4"
+device0.Coils_Size = "6"
 device0.Input_Registers_Start = "0"
 device0.Input_Registers_Size = "0"
 device0.Holding_Registers_Read_Start = "0"
-device0.Holding_Registers_Read_Size = "1"
+device0.Holding_Registers_Read_Size = "5"
 device0.Holding_Registers_Start = "0"
 device0.Holding_Registers_Size = "0"
 EOF

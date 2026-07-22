@@ -21,6 +21,11 @@ case "$PROCESS_TYPE" in
   generic)
     echo "[ics-process-sim] Generic signal generator mode"
     ;;
+  batch-reactor)
+    echo "[ics-process-sim] Batch reactor vessel=${TANK_VOLUME_L}L  area=${TANK_AREA_M2}m2  " \
+         "charge_max=${VALVE_FLOW_MAX_LPM}L/min  heater=${HEATER_RATE_C_PER_S}C/s  " \
+         "cooling=${COOLING_RATE_C_PER_S}C/s"
+    ;;
   *)
     echo "[ics-process-sim] WARNING: unknown PROCESS_TYPE='${PROCESS_TYPE}' — defaulting to water-tank"
     ;;

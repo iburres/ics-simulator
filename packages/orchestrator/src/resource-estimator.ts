@@ -127,7 +127,12 @@ export function estimateResources(scenario: OTForgeScenario): ResourceEstimate {
 
   // Sum per-device RAM, giving PLCs, OPC UA servers, and workstations their larger budgets
   const deviceRam = devices.reduce((total, device) => {
-    if (device.category === 'plc' || device.category === 'safety-plc') return total + RAM_OPENPLC
+    if (
+      device.category === 'plc' ||
+      device.category === 'safety-plc' ||
+      device.category === 'batch-controller'
+    )
+      return total + RAM_OPENPLC
     if (device.category === 'scada-server') return total + RAM_OPCUA
     if (device.category === 'engineering-workstation') return total + RAM_WORKSTATION
     return total + RAM_DEVICE

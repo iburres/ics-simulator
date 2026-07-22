@@ -73,6 +73,7 @@ const PALETTE: PaletteSection[] = [
       { category: 'plc', label: 'PLC' },
       { category: 'safety-plc', label: 'Safety PLC / SIS' },
       { category: 'dcs-controller', label: 'DCS Controller' },
+      { category: 'batch-controller', label: 'Batch Controller (ISA-88)' },
       { category: 'rtu', label: 'RTU' },
       { category: 'ied', label: 'IED (DNP3)' },
       { category: 'iec61850-ied', label: 'IEC 61850 IED' },
@@ -240,6 +241,8 @@ const PALETTE_COLORS: Partial<Record<DeviceCategory, string>> = {
   'safety-plc': '#f85149',
   // DCS Controller — cornflower blue (primary process control)
   'dcs-controller': '#58a6ff',
+  // Batch Controller (ISA-88) — burnt orange, evokes heat/chemical batch process
+  'batch-controller': '#db6d28',
   // Smart Controller — teal/cyan (motor/drive/actuator systems, consolidated from vfd)
   'smart-controller': '#3dc9b0',
   // IIoT devices — mint green (edge/cloud)

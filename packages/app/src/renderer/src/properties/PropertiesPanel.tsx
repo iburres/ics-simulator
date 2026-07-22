@@ -207,8 +207,10 @@ export function PropertiesPanel({
         </div>
       </div>
 
-      {/* PLC and Safety PLC: identity rows + IDE launch button */}
-      {(device.category === 'plc' || device.category === 'safety-plc') && (
+      {/* PLC, Safety PLC, and Batch Controller: identity rows + IDE launch button — all three reuse the OpenPLC runtime */}
+      {(device.category === 'plc' ||
+        device.category === 'safety-plc' ||
+        device.category === 'batch-controller') && (
         <div className="properties-body">
           {/* Identity section — same fields as non-PLC devices */}
           <section className="prop-section">
@@ -298,6 +300,49 @@ export function PropertiesPanel({
             </section>
           )}
 
+          {/* ISA-88 batch recipe parameters — shown for batch-controller devices */}
+          {device.category === 'batch-controller' && device.batch && (
+            <section className="prop-section">
+              <div className="prop-section-title">Batch Recipe (ISA-88)</div>
+              {device.batch.recipeName && (
+                <div className="prop-row">
+                  <span className="prop-label">Recipe</span>
+                  <span className="prop-value">{device.batch.recipeName}</span>
+                </div>
+              )}
+              {device.batch.chargeTargetPct !== undefined && (
+                <div className="prop-row">
+                  <span className="prop-label">Charge target</span>
+                  <span className="prop-value">{device.batch.chargeTargetPct}%</span>
+                </div>
+              )}
+              {device.batch.heatSetpointC !== undefined && (
+                <div className="prop-row">
+                  <span className="prop-label">Heat setpoint</span>
+                  <span className="prop-value">{device.batch.heatSetpointC}°C</span>
+                </div>
+              )}
+              {device.batch.reactHoldSec !== undefined && (
+                <div className="prop-row">
+                  <span className="prop-label">React hold</span>
+                  <span className="prop-value">{device.batch.reactHoldSec}s</span>
+                </div>
+              )}
+              {device.batch.coolSetpointC !== undefined && (
+                <div className="prop-row">
+                  <span className="prop-label">Cool setpoint</span>
+                  <span className="prop-value">{device.batch.coolSetpointC}°C</span>
+                </div>
+              )}
+              {device.batch.dischargeTargetPct !== undefined && (
+                <div className="prop-row">
+                  <span className="prop-label">Discharge target</span>
+                  <span className="prop-value">{device.batch.dischargeTargetPct}%</span>
+                </div>
+              )}
+            </section>
+          )}
+
           {/* PLC controls — hidden in Student mode (read-only); instructors only */}
           {!readOnly && (
             <div className="prop-plc-ide-launch">
@@ -336,231 +381,235 @@ export function PropertiesPanel({
       )}
 
       {/* Standard property rows for all non-PLC devices */}
-      {device.category !== 'plc' && device.category !== 'safety-plc' && (
-        <div className="properties-body">
-          {/* ── Identity section ─────────────────────────────────────────────── */}
-          <section className="prop-section">
-            {/* Label — editable in Author Mode; hidden in Student Mode */}
-            {!readOnly && (
+      {device.category !== 'plc' &&
+        device.category !== 'safety-plc' &&
+        device.category !== 'batch-controller' && (
+          <div className="properties-body">
+            {/* ── Identity section ─────────────────────────────────────────────── */}
+            <section className="prop-section">
+              {/* Label — editable in Author Mode; hidden in Student Mode */}
+              {!readOnly && (
+                <div className="prop-row">
+                  <span className="prop-label">Label</span>
+                  <input
+                    className="prop-input"
+                    value={editLabel}
+                    placeholder={device.nodeId}
+                    onChange={e => setEditLabel(e.target.value)}
+                    onBlur={() => onDeviceChange?.(device.nodeId, { label: editLabel })}
+                  />
+                </div>
+              )}
               <div className="prop-row">
-                <span className="prop-label">Label</span>
-                <input
-                  className="prop-input"
-                  value={editLabel}
-                  placeholder={device.nodeId}
-                  onChange={e => setEditLabel(e.target.value)}
-                  onBlur={() => onDeviceChange?.(device.nodeId, { label: editLabel })}
-                />
+                <span className="prop-label">Node ID</span>
+                <code className="prop-value">{device.nodeId}</code>
               </div>
+              <div className="prop-row">
+                <span className="prop-label">Zone</span>
+                <span className="prop-value" style={{ color: zoneColor }}>
+                  {zoneLabel}
+                </span>
+              </div>
+              <div className="prop-row">
+                <span className="prop-label">IP Address</span>
+                {readOnly ? (
+                  <code className="prop-value">{device.ipAddress}</code>
+                ) : (
+                  <input
+                    className="prop-input prop-input-mono"
+                    value={editIp}
+                    placeholder="0.0.0.0"
+                    onChange={e => setEditIp(e.target.value)}
+                    onBlur={() => onDeviceChange?.(device.nodeId, { ipAddress: editIp })}
+                  />
+                )}
+              </div>
+            </section>
+
+            {/* ── Protocols section ────────────────────────────────────────────── */}
+            <section className="prop-section">
+              <div className="prop-section-title">Protocols</div>
+              <div className="prop-tags">
+                {device.protocols.length > 0 ? (
+                  device.protocols.map(p => (
+                    <span key={p} className="prop-tag">
+                      {p}
+                    </span>
+                  ))
+                ) : (
+                  <span className="prop-tag muted">none</span>
+                )}
+              </div>
+            </section>
+
+            {/* ── Modbus config (shown only when device has Modbus enabled) ─────── */}
+            {device.modbus && (
+              <section className="prop-section">
+                <div className="prop-section-title">Modbus</div>
+                <div className="prop-row">
+                  <span className="prop-label">Mode</span>
+                  <code className="prop-value">{device.modbus.mode}</code>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">Port</span>
+                  <code className="prop-value">{device.modbus.port}</code>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">Unit ID</span>
+                  <code className="prop-value">{device.modbus.unitId}</code>
+                </div>
+              </section>
             )}
-            <div className="prop-row">
-              <span className="prop-label">Node ID</span>
-              <code className="prop-value">{device.nodeId}</code>
-            </div>
-            <div className="prop-row">
-              <span className="prop-label">Zone</span>
-              <span className="prop-value" style={{ color: zoneColor }}>
-                {zoneLabel}
-              </span>
-            </div>
-            <div className="prop-row">
-              <span className="prop-label">IP Address</span>
-              {readOnly ? (
-                <code className="prop-value">{device.ipAddress}</code>
-              ) : (
-                <input
-                  className="prop-input prop-input-mono"
-                  value={editIp}
-                  placeholder="0.0.0.0"
-                  onChange={e => setEditIp(e.target.value)}
-                  onBlur={() => onDeviceChange?.(device.nodeId, { ipAddress: editIp })}
+
+            {/* ── DNP3 config (shown only when device has DNP3 enabled) ─────────── */}
+            {device.dnp3 && (
+              <section className="prop-section">
+                <div className="prop-section-title">DNP3</div>
+                <div className="prop-row">
+                  <span className="prop-label">Master Addr</span>
+                  <code className="prop-value">{device.dnp3.masterAddress}</code>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">Outstation</span>
+                  <code className="prop-value">{device.dnp3.outstationAddress}</code>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">Port</span>
+                  <code className="prop-value">{device.dnp3.port}</code>
+                </div>
+              </section>
+            )}
+
+            {/* ── BACnet config (shown only when device has BACnet enabled) ─────── */}
+            {device.bacnet && (
+              <section className="prop-section">
+                <div className="prop-section-title">BACnet</div>
+                <div className="prop-row">
+                  <span className="prop-label">Device Instance</span>
+                  <code className="prop-value">{device.bacnet.deviceInstance}</code>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">Port</span>
+                  <code className="prop-value">{device.bacnet.port ?? 47808}</code>
+                </div>
+                <BacnetPanel
+                  bacnetConfig={device.bacnet}
+                  nodeId={device.nodeId}
+                  readOnly={readOnly}
+                  onChange={(nodeId, bacnet) => onDeviceChange?.(nodeId, { bacnet })}
                 />
-              )}
-            </div>
-          </section>
+              </section>
+            )}
 
-          {/* ── Protocols section ────────────────────────────────────────────── */}
-          <section className="prop-section">
-            <div className="prop-section-title">Protocols</div>
-            <div className="prop-tags">
-              {device.protocols.length > 0 ? (
-                device.protocols.map(p => (
-                  <span key={p} className="prop-tag">
-                    {p}
-                  </span>
-                ))
-              ) : (
-                <span className="prop-tag muted">none</span>
-              )}
-            </div>
-          </section>
+            {/* ── OPC UA config (shown only when device has OPC UA enabled) ──────── */}
+            {device.opcua && (
+              <section className="prop-section">
+                <div className="prop-section-title">OPC UA</div>
+                <div className="prop-row">
+                  <span className="prop-label">Port</span>
+                  <code className="prop-value">{device.opcua.port}</code>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">Namespace</span>
+                  <code className="prop-value">{device.opcua.namespace}</code>
+                </div>
+              </section>
+            )}
 
-          {/* ── Modbus config (shown only when device has Modbus enabled) ─────── */}
-          {device.modbus && (
-            <section className="prop-section">
-              <div className="prop-section-title">Modbus</div>
-              <div className="prop-row">
-                <span className="prop-label">Mode</span>
-                <code className="prop-value">{device.modbus.mode}</code>
-              </div>
-              <div className="prop-row">
-                <span className="prop-label">Port</span>
-                <code className="prop-value">{device.modbus.port}</code>
-              </div>
-              <div className="prop-row">
-                <span className="prop-label">Unit ID</span>
-                <code className="prop-value">{device.modbus.unitId}</code>
-              </div>
-            </section>
-          )}
-
-          {/* ── DNP3 config (shown only when device has DNP3 enabled) ─────────── */}
-          {device.dnp3 && (
-            <section className="prop-section">
-              <div className="prop-section-title">DNP3</div>
-              <div className="prop-row">
-                <span className="prop-label">Master Addr</span>
-                <code className="prop-value">{device.dnp3.masterAddress}</code>
-              </div>
-              <div className="prop-row">
-                <span className="prop-label">Outstation</span>
-                <code className="prop-value">{device.dnp3.outstationAddress}</code>
-              </div>
-              <div className="prop-row">
-                <span className="prop-label">Port</span>
-                <code className="prop-value">{device.dnp3.port}</code>
-              </div>
-            </section>
-          )}
-
-          {/* ── BACnet config (shown only when device has BACnet enabled) ─────── */}
-          {device.bacnet && (
-            <section className="prop-section">
-              <div className="prop-section-title">BACnet</div>
-              <div className="prop-row">
-                <span className="prop-label">Device Instance</span>
-                <code className="prop-value">{device.bacnet.deviceInstance}</code>
-              </div>
-              <div className="prop-row">
-                <span className="prop-label">Port</span>
-                <code className="prop-value">{device.bacnet.port ?? 47808}</code>
-              </div>
-              <BacnetPanel
-                bacnetConfig={device.bacnet}
+            {/* ── Smart sensor config (kind chosen in dropdown) ───────────────────── */}
+            {device.category === 'smart-sensor' && (
+              <SensorPanel
+                sensorConfig={device.sensor}
                 nodeId={device.nodeId}
                 readOnly={readOnly}
-                onChange={(nodeId, bacnet) => onDeviceChange?.(nodeId, { bacnet })}
+                onChange={(nodeId, sensor) => onDeviceChange?.(nodeId, { sensor })}
               />
-            </section>
-          )}
+            )}
 
-          {/* ── OPC UA config (shown only when device has OPC UA enabled) ──────── */}
-          {device.opcua && (
-            <section className="prop-section">
-              <div className="prop-section-title">OPC UA</div>
-              <div className="prop-row">
-                <span className="prop-label">Port</span>
-                <code className="prop-value">{device.opcua.port}</code>
-              </div>
-              <div className="prop-row">
-                <span className="prop-label">Namespace</span>
-                <code className="prop-value">{device.opcua.namespace}</code>
-              </div>
-            </section>
-          )}
+            {/* ── Smart controller config (kind chosen in dropdown) ───────────────── */}
+            {device.category === 'smart-controller' && (
+              <ControllerPanel
+                controllerConfig={device.controller}
+                nodeId={device.nodeId}
+                readOnly={readOnly}
+                onChange={(nodeId, controller) => onDeviceChange?.(nodeId, { controller })}
+              />
+            )}
 
-          {/* ── Smart sensor config (kind chosen in dropdown) ───────────────────── */}
-          {device.category === 'smart-sensor' && (
-            <SensorPanel
-              sensorConfig={device.sensor}
-              nodeId={device.nodeId}
-              readOnly={readOnly}
-              onChange={(nodeId, sensor) => onDeviceChange?.(nodeId, { sensor })}
-            />
-          )}
-
-          {/* ── Smart controller config (kind chosen in dropdown) ───────────────── */}
-          {device.category === 'smart-controller' && (
-            <ControllerPanel
-              controllerConfig={device.controller}
-              nodeId={device.nodeId}
-              readOnly={readOnly}
-              onChange={(nodeId, controller) => onDeviceChange?.(nodeId, { controller })}
-            />
-          )}
-
-          {/* ── HMI panel — authoring happens entirely inside FUXA's own editor, same ─
+            {/* ── HMI panel — authoring happens entirely inside FUXA's own editor, same ─
               philosophy as the PLC IDE using the real OpenPLC editor rather than a
               custom one. Hidden in Student mode, like the PLC controls above. */}
-          {!readOnly && device.category === 'hmi' && (
-            <section className="prop-section">
-              <div className="prop-section-title">HMI Program</div>
-              <button
-                className="btn btn-primary"
-                onClick={() => window.electronAPI.hmi.openEditor()}
-                title="Open FUXA's editor to build this device's HMI — find/create its view named otf-hmi-<device id> in the Views sidebar"
-              >
-                Open HMI Editor ↗
-              </button>
-              <p className="prop-attack-idle">
-                Build the program in FUXA, then use the toolbar&apos;s &quot;Open HMI&quot; button
-                to view it at runtime.
-              </p>
-            </section>
-          )}
-
-          {/* ── Firewall panel (Phase 5) ──────────────────────────────────────── */}
-          {/* Hidden in Student mode — security config is stripped from locked exports. */}
-          {!readOnly && device.category === 'firewall' && security && (
-            <FirewallPanel
-              security={security}
-              onSecurityChange={onSecurityChange}
-              nodeId={device.nodeId}
-              simRunning={simRunning}
-            />
-          )}
-          {!readOnly && device.category === 'firewall' && !security && (
-            <section className="prop-section">
-              <p className="prop-attack-idle">
-                Open or create a scenario to configure firewall rules.
-              </p>
-            </section>
-          )}
-
-          {/* ── IDS/IPS panel (Phase 5) ───────────────────────────────────────── */}
-          {/* Hidden in Student mode — security config is stripped from locked exports. */}
-          {!readOnly && device.category === 'ids-ips' && security && (
-            <IDSPanel security={security} onSecurityChange={onSecurityChange} />
-          )}
-          {!readOnly && device.category === 'ids-ips' && !security && (
-            <section className="prop-section">
-              <p className="prop-attack-idle">Open or create a scenario to configure IDS rules.</p>
-            </section>
-          )}
-
-          {/* ── Attack machine panel ──────────────────────────────────────────── */}
-          {device.category === 'attack-machine' && (
-            <section className="prop-section">
-              <div className="prop-section-title">Attack Terminal</div>
-              {simRunning ? (
+            {!readOnly && device.category === 'hmi' && (
+              <section className="prop-section">
+                <div className="prop-section-title">HMI Program</div>
                 <button
-                  className="btn btn-sm btn-danger prop-attack-btn"
-                  onClick={() => onOpenAttackTerminal(device)}
+                  className="btn btn-primary"
+                  onClick={() => window.electronAPI.hmi.openEditor()}
+                  title="Open FUXA's editor to build this device's HMI — find/create its view named otf-hmi-<device id> in the Views sidebar"
                 >
-                  Open Attack Terminal
+                  Open HMI Editor ↗
                 </button>
-              ) : (
                 <p className="prop-attack-idle">
-                  Start the simulation to open the terminal and Xfce4 desktop.
+                  Build the program in FUXA, then use the toolbar&apos;s &quot;Open HMI&quot; button
+                  to view it at runtime.
                 </p>
-              )}
-              <p className="prop-attack-note">
-                Kali Linux · External segment · xterm.js + noVNC Desktop (Wireshark, Armitage)
-              </p>
-            </section>
-          )}
-        </div>
-      )}
+              </section>
+            )}
+
+            {/* ── Firewall panel (Phase 5) ──────────────────────────────────────── */}
+            {/* Hidden in Student mode — security config is stripped from locked exports. */}
+            {!readOnly && device.category === 'firewall' && security && (
+              <FirewallPanel
+                security={security}
+                onSecurityChange={onSecurityChange}
+                nodeId={device.nodeId}
+                simRunning={simRunning}
+              />
+            )}
+            {!readOnly && device.category === 'firewall' && !security && (
+              <section className="prop-section">
+                <p className="prop-attack-idle">
+                  Open or create a scenario to configure firewall rules.
+                </p>
+              </section>
+            )}
+
+            {/* ── IDS/IPS panel (Phase 5) ───────────────────────────────────────── */}
+            {/* Hidden in Student mode — security config is stripped from locked exports. */}
+            {!readOnly && device.category === 'ids-ips' && security && (
+              <IDSPanel security={security} onSecurityChange={onSecurityChange} />
+            )}
+            {!readOnly && device.category === 'ids-ips' && !security && (
+              <section className="prop-section">
+                <p className="prop-attack-idle">
+                  Open or create a scenario to configure IDS rules.
+                </p>
+              </section>
+            )}
+
+            {/* ── Attack machine panel ──────────────────────────────────────────── */}
+            {device.category === 'attack-machine' && (
+              <section className="prop-section">
+                <div className="prop-section-title">Attack Terminal</div>
+                {simRunning ? (
+                  <button
+                    className="btn btn-sm btn-danger prop-attack-btn"
+                    onClick={() => onOpenAttackTerminal(device)}
+                  >
+                    Open Attack Terminal
+                  </button>
+                ) : (
+                  <p className="prop-attack-idle">
+                    Start the simulation to open the terminal and Xfce4 desktop.
+                  </p>
+                )}
+                <p className="prop-attack-note">
+                  Kali Linux · External segment · xterm.js + noVNC Desktop (Wireshark, Armitage)
+                </p>
+              </section>
+            )}
+          </div>
+        )}
     </aside>
   )
 }
