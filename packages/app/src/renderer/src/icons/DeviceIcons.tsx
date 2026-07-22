@@ -614,6 +614,29 @@ function DcsControllerSvg() {
 }
 
 /**
+ * ISA-88 Batch Controller — a stirred-tank reactor vessel: agitator motor on
+ * top, shaft/blades through the middle, and a wavy heating/cooling jacket
+ * line at the base to represent the charge/heat/react/cool/discharge cycle.
+ */
+function BatchControllerSvg() {
+  return (
+    <svg viewBox="0 0 24 24" {...S}>
+      {/* Agitator motor housing */}
+      <rect x="9" y="1" width="6" height="3" rx="0.5" />
+      {/* Agitator shaft into the vessel */}
+      <line x1="12" y1="4" x2="12" y2="15" />
+      {/* Agitator blades */}
+      <line x1="8.5" y1="13" x2="15.5" y2="13" />
+      <line x1="9.5" y1="16" x2="14.5" y2="16" />
+      {/* Vessel body */}
+      <rect x="4" y="6" width="16" height="15" rx="3" />
+      {/* Heating/cooling jacket wave at the base */}
+      <polyline points="5,21.5 7,20 9,21.5 11,20 13,21.5 15,20 17,21.5 19,20" />
+    </svg>
+  )
+}
+
+/**
  * Variable Frequency Drive / Motor Drive — rectangular chassis with a sinusoidal
  * AC input wave on the left converting to a stepped variable-frequency output on
  * the right, visually encoding the AC→controlled-AC conversion that drives motors.
@@ -935,6 +958,7 @@ const ICON_MAP: Record<DeviceCategory, () => JSX.Element> = {
   'profinet-device': RtuSvg, // PROFINET IO device — reuses the generic remote-terminal icon, same as the EtherNet/IP adapter
   'safety-plc': SafetyPlcSvg, // IEC 61511 Safety PLC / SIS — Triconex, Siemens Safety
   'dcs-controller': DcsControllerSvg, // Distributed Control System — DeltaV, Experion, 800xA
+  'batch-controller': BatchControllerSvg, // ISA-88 batch control — fixed 5-phase recipe engine
   'legacy-plc': LegacyPlcSvg, // Siemens S7-300/400/1200/1500 via S7comm (Phase 10)
   'iec104-rtu': Iec104RtuSvg, // IEC 60870-5-104 RTU via conpot emulation (Phase 10)
   'process-unit': ProcessUnitSvg, // physics-simulated process unit (Phase 11)

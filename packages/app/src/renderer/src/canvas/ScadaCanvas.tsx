@@ -391,6 +391,7 @@ const DEFAULT_PROTOCOLS: Record<DeviceCategory, Protocol[]> = {
   'profinet-device': ['profinet'], // real otforge-profinet container (DCP only), scanned by a PLC
   'safety-plc': ['modbus-tcp'], // SIS — same Modbus transport as standard PLC
   'dcs-controller': ['opc-ua'], // DCS prefers OPC-UA upward by convention
+  'batch-controller': ['modbus-tcp'], // same OpenPLC runtime — Modbus master to its batch-reactor
   'legacy-plc': ['s7comm'], // Siemens S7 — S7comm primary protocol (Phase 10)
   'iec104-rtu': ['iec-104'], // IEC 60870-5-104 RTU (Phase 10)
   'process-unit': ['modbus-tcp'], // physics process sim — Modbus TCP server (Phase 11)
@@ -442,6 +443,7 @@ const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   'profinet-device': 'PROFINET Device',
   'safety-plc': 'Safety PLC',
   'dcs-controller': 'DCS Ctrl',
+  'batch-controller': 'Batch Ctrl',
   'legacy-plc': 'S7 PLC', // Phase 10
   'iec104-rtu': 'IEC 104', // Phase 10
   'process-unit': 'Process Unit', // Phase 11

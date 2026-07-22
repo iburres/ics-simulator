@@ -37,6 +37,8 @@ Control Coils — written by PLC digital outputs (FC1 / FC5 / FC15):
   CO 1   INLET_VALVE_CMD  0 = close, 1 = open  (on/off command)
   CO 2   OUTLET_VALVE_CMD 0 = close, 1 = open  (gravity drain or bypass)
   CO 3   EMERGENCY_STOP   1 = ESD trip — immediately overrides all actuators
+  CO 4   HEATER_CMD       0 = off,   1 = on   (batch-reactor only)
+  CO 5   COOLING_CMD      0 = off,   1 = on   (batch-reactor only, cooling jacket)
 
 STATUS_WORD bit mask (HR 5):
   bit 0  (0x0001): pump running
@@ -67,6 +69,15 @@ Supported Process Types  (PROCESS_TYPE environment variable)
   generic     — Multi-frequency signal generator: four sine/ramp waves on
                 HR 0–3. Useful for protocol scanner labs when a specific
                 process model is not needed.
+
+  batch-reactor — ISA-88 batch vessel: charge valve (CO 1) fills the vessel
+                (reuses INLET_VALVE_CMD/VALVE_FLOW_MAX_LPM), agitator (CO 0,
+                reuses PUMP_CMD) improves mixing only, heater (CO 4) and
+                cooling jacket (CO 5) drive temperature, discharge valve
+                (CO 2, reuses OUTLET_VALVE_CMD/gravity-drain model) empties
+                the vessel. Paired with a batch-controller device running
+                buildBatchProgram()'s S88 phase-sequencer ST — see
+                packages/orchestrator/src/plc-program-gen.ts.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Educational purpose
@@ -140,6 +151,12 @@ GEN_FREQ_BASE = float(os.getenv("GENERATOR_FREQ_BASE", "50.0"))   # nominal freq
 # Pipeline parameters
 PIPELINE_VOLUME_L = float(os.getenv("PIPELINE_VOLUME_L",     "500.0"))  # pipe volume, liters
 PIPELINE_PUMP_MAX = float(os.getenv("PIPELINE_PUMP_MAX_LPM", "300.0"))  # pump max flow, L/min
+
+# Batch reactor parameters — vessel geometry/flow reuse TANK_VOLUME_L/TANK_AREA_M2/
+# PUMP_FLOW_MAX_LPM (agitator)/VALVE_FLOW_MAX_LPM (charge) above; only heat/cool
+# rates are new, since water-tank has no driven heater/cooling jacket.
+HEATER_RATE_C_PER_S  = float(os.getenv("HEATER_RATE_C_PER_S",  "0.05"))  # °C/s while CO_HEATER_CMD=1
+COOLING_RATE_C_PER_S = float(os.getenv("COOLING_RATE_C_PER_S", "0.08"))  # °C/s while CO_COOLING_CMD=1
 # Effective bulk modulus for bulk-modulus pressure model (accounts for pipe elasticity).
 # Pure water: ~2.2 GPa; effective with mild-steel pipe compliance: ~1.0 GPa → use 1e9 Pa.
 # Scaled down here to 1e6 for a slow, educationally observable response over seconds.
@@ -165,10 +182,12 @@ HR_LEVEL_SP       = 102  # ×0.01 m   (level controller setpoint)
 HR_LOAD_SP        = 103  # ×0.1  MW  (generator load setpoint)
 
 # Coil addresses — PLC writes as digital control outputs (FC1)
-CO_PUMP_CMD         = 0  # 0 = stop,  1 = run
-CO_INLET_VALVE_CMD  = 1  # 0 = close, 1 = open
-CO_OUTLET_VALVE_CMD = 2  # 0 = close, 1 = open (gravity drain / bypass)
+CO_PUMP_CMD         = 0  # 0 = stop,  1 = run                 (batch-reactor: agitator)
+CO_INLET_VALVE_CMD  = 1  # 0 = close, 1 = open                (batch-reactor: charge valve)
+CO_OUTLET_VALVE_CMD = 2  # 0 = close, 1 = open (gravity drain / bypass) (batch-reactor: discharge valve)
 CO_EMERGENCY_STOP   = 3  # 1 = ESD trip — overrides all actuators immediately
+CO_HEATER_CMD       = 4  # 0 = off, 1 = on  (batch-reactor only)
+CO_COOLING_CMD      = 5  # 0 = off, 1 = on  (batch-reactor only, cooling jacket)
 
 # STATUS_WORD bitmasks (HR_STATUS_WORD, HR 5)
 STATUS_PUMP_RUN   = 0x0001  # pump motor running
@@ -262,13 +281,17 @@ def build_store(state: PhysicsState) -> ModbusSlaveContext:
 
 def read_coils(store: ModbusSlaveContext) -> list[bool]:
     """
-    Reads the four control coils (FC1) from the Modbus datastore.
+    Reads the six control coils (FC1) from the Modbus datastore.
 
     Returns a list indexed by coil address:
-      [0] PUMP_CMD, [1] INLET_VALVE_CMD, [2] OUTLET_VALVE_CMD, [3] EMERGENCY_STOP
+      [0] PUMP_CMD, [1] INLET_VALVE_CMD, [2] OUTLET_VALVE_CMD, [3] EMERGENCY_STOP,
+      [4] HEATER_CMD (batch-reactor only), [5] COOLING_CMD (batch-reactor only)
+
+    water-tank/pipeline/generator physics functions only index [0:4] and
+    simply ignore the two extra batch-reactor coils.
     """
-    # getValues(function_code=1, address=0, count=4) — FC1 = coils
-    raw = store.getValues(1, 0, 4)
+    # getValues(function_code=1, address=0, count=6) — FC1 = coils
+    raw = store.getValues(1, 0, 6)
     return [bool(v) for v in raw]
 
 
@@ -445,6 +468,84 @@ def update_water_tank(state: PhysicsState, coils: list[bool],
     newton_cool = (state.temperature_c - T_ambient) * 0.02  # decay to ambient
     dT = (pump_heat - newton_cool) * dt
     state.temperature_c = max(T_ambient - 2.0, min(90.0, state.temperature_c + dT))
+
+
+def update_batch_reactor(state: PhysicsState, coils: list[bool], dt: float) -> None:
+    """
+    ISA-88 batch vessel physics: charge/discharge volume + heat/cool temperature,
+    both first-order integrations reusing exactly the patterns already proven in
+    update_water_tank() above — the vessel is physically the same shape as a
+    water tank, only its equipment set (heater/cooling jacket instead of a
+    variable-speed outlet pump) differs.
+
+    No setpoint registers are read here — unlike water-tank's fractional
+    HR_PUMP_SPEED_SP/HR_INLET_VALVE_SP, batch-reactor valves/heater/cooling
+    are simple on/off equipment. The batch-controller's ST program (see
+    buildBatchProgram() in plc-program-gen.ts) decides WHEN to energize each
+    coil based on its own phase logic and the PVs read back from here — this
+    function only integrates the physical response, same separation of
+    concerns as every other process type.
+
+    Volume balance (charge valve fills, discharge valve actively pumps out):
+      dV/dt = Q_charge − Q_discharge   [L/s]
+      Q_charge    = VALVE_FLOW_MAX_LPM   when CO_INLET_VALVE_CMD (charge) = 1
+      Q_discharge = VALVE_FLOW_MAX_LPM   when CO_OUTLET_VALVE_CMD (discharge) = 1
+                    A real batch reactor discharges via an actively pumped
+                    line, not passive gravity drain — unlike update_water_tank's
+                    bypass-outlet case, so this deliberately does NOT reuse the
+                    Torricelli √level model (which asymptotically slows near
+                    empty and would leave DISCHARGE unable to complete in any
+                    practical recipe hold time).
+
+    Temperature (driven heat/cool vs. Newton cooling to ambient):
+      dT/dt = heater_on × HEATER_RATE_C_PER_S × (1.15 if agitator_on else 1.0)
+            − cooling_on × COOLING_RATE_C_PER_S
+            − (T − T_ambient) × 0.02 s⁻¹
+      The small agitator boost is a minor realism touch (better mixing → better
+      heat transfer) — the agitator has no effect on volume/level.
+
+    ESD (CO_EMERGENCY_STOP): forces the charge valve and heater off and forces
+    the cooling jacket on (drive toward a safe, cool, non-reacting state) —
+    same "stop inputs, don't touch outputs" philosophy as update_water_tank's
+    ESD handling. Discharge valve and agitator are NOT tripped by ESD, mirroring
+    update_water_tank's bypass-outlet-not-tripped precedent.
+
+    Args:
+        state: PhysicsState modified in-place.
+        coils: Control coils — [0] agitator, [1] charge valve, [2] discharge
+               valve, [3] ESD, [4] heater, [5] cooling jacket.
+        dt:    Elapsed time in seconds per physics step.
+    """
+    esd = coils[CO_EMERGENCY_STOP]
+
+    agitator_on  = coils[CO_PUMP_CMD]
+    charge_on    = coils[CO_INLET_VALVE_CMD]  and not esd
+    discharge_on = coils[CO_OUTLET_VALVE_CMD]  # not tripped by ESD
+    heater_on    = coils[CO_HEATER_CMD]        and not esd
+    cooling_on   = coils[CO_COOLING_CMD] or esd  # ESD forces cooling on
+
+    # ── Volume integration ────────────────────────────────────────────────────
+    level_m = state.volume_l / (TANK_AREA_M2 * 1000.0)
+    q_charge = VALVE_FLOW_MAX_LPM if charge_on else 0.0
+    q_discharge = VALVE_FLOW_MAX_LPM if discharge_on else 0.0
+
+    dV = (q_charge - q_discharge) / 60.0 * dt  # L/min → L/s, then × dt
+    state.volume_l = max(0.0, min(TANK_VOLUME_L, state.volume_l + dV))
+
+    level_m = state.volume_l / (TANK_AREA_M2 * 1000.0)
+    state.level_m       = level_m
+    state.flow_in_lpm   = q_charge if charge_on else 0.0
+    state.flow_out_lpm  = q_discharge
+    state.pressure_bar  = level_m * 0.0981  # hydrostatic, same as update_water_tank
+
+    # ── Temperature dynamics ──────────────────────────────────────────────────
+    T_ambient = 20.0  # °C
+    agitator_boost = 1.15 if agitator_on else 1.0
+    heat_in  = (HEATER_RATE_C_PER_S * agitator_boost) if heater_on else 0.0
+    cool_out = COOLING_RATE_C_PER_S if cooling_on else 0.0
+    newton_cool = (state.temperature_c - T_ambient) * 0.02
+    dT = (heat_in - cool_out - newton_cool) * dt
+    state.temperature_c = max(15.0, min(150.0, state.temperature_c + dT))
 
 
 def update_pipeline(state: PhysicsState, coils: list[bool],
@@ -683,6 +784,8 @@ async def physics_loop(store: ModbusSlaveContext) -> None:
                 update_pipeline(state, coils, setpoints, dt)
             elif PROCESS_TYPE == "generator":
                 update_generator(state, coils, setpoints, dt)
+            elif PROCESS_TYPE == "batch-reactor":
+                update_batch_reactor(state, coils, dt)
             else:  # generic
                 update_generic(state, dt)
 
