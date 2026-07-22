@@ -52,6 +52,10 @@ jobs:
             context: containers/camera
           - image: otforge-dcs
             context: containers/dcs
+          # Real IEEE C37.118 PMU — polls a wired generator process-unit over
+          # Modbus TCP, re-exposes as a real synchrophasor stream on port 4712.
+          - image: otforge-pmu
+            context: containers/pmu
           - image: otforge-firewall
             context: containers/firewall
           - image: otforge-switch
