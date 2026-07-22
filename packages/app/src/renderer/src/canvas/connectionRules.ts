@@ -238,6 +238,23 @@ export const VALID_CONNECTIONS: Partial<
     'ids-ips': ['none']
   },
 
+  // ── PMU (real IEEE C37.118 synchrophasor device) ────────────────────────────
+  // Polls exactly one wired generator process-unit over Modbus TCP (same
+  // single-target edge shape as PLC↔process-unit), then re-exposes what it
+  // reads upward as a real C37.118 stream — the actual protocol a PDC/
+  // historian/SCADA server would speak to it, not Modbus.
+  pmu: {
+    'process-unit': ['modbus-tcp'], // PMU polls its wired generator
+    hmi: ['c37118'],
+    historian: ['c37118'],
+    'scada-server': ['c37118'],
+    'engineering-workstation': ['none'],
+    switch: ['none'],
+    router: ['none'],
+    firewall: ['none'],
+    'ids-ips': ['none']
+  },
+
   // ── HMI (reads process data; sits on IT layer above PLC/RTU/IED) ───────────
   hmi: {
     plc: ['modbus-tcp', 'opc-ua'],
@@ -247,6 +264,7 @@ export const VALID_CONNECTIONS: Partial<
     'safety-plc': ['modbus-tcp', 'opc-ua'], // HMI shows SIS status (read-only)
     'dcs-controller': ['opc-ua', 'modbus-tcp'],
     'batch-controller': ['modbus-tcp', 'opc-ua'], // HMI shows batch phase/state (read-only)
+    pmu: ['c37118'], // HMI reads the real synchrophasor stream directly
     'legacy-plc': ['s7comm', 'opc-ua'], // HMI reads Siemens S7 via S7comm or OPC-UA (Phase 10)
     'iec104-rtu': ['iec-104'], // HMI reads IEC 104 RTU (Phase 10)
     'process-unit': ['modbus-tcp'], // HMI reads process simulation PVs (Phase 11)
@@ -268,6 +286,7 @@ export const VALID_CONNECTIONS: Partial<
     'safety-plc': ['opc-ua'], // logs safety system events
     'dcs-controller': ['opc-ua', 'modbus-tcp'],
     'batch-controller': ['opc-ua', 'modbus-tcp'], // logs batch phase/state history
+    pmu: ['c37118'], // Historian archives the synchrophasor stream directly
     'smart-sensor': ['opc-ua', 'modbus-tcp', 'dnp3'], // includes former analyzer/pmu
     sensor: ['bacnet'], // Historian archives BACnet building-automation data
     'iot-gateway': ['mqtt', 'opc-ua'], // IIoT time-series data
@@ -295,6 +314,7 @@ export const VALID_CONNECTIONS: Partial<
     'dcs-controller': ['opc-ua', 'modbus-tcp'],
     'safety-plc': ['opc-ua', 'modbus-tcp'],
     'batch-controller': ['opc-ua', 'modbus-tcp'],
+    pmu: ['c37118'], // SCADA server (as a PDC) reads the synchrophasor stream directly
     'smart-sensor': ['dnp3', 'opc-ua'], // includes former pmu
     sensor: ['bacnet'], // SCADA server polls BACnet building-automation devices directly
     'iot-gateway': ['opc-ua', 'mqtt'],
@@ -548,6 +568,7 @@ export const VALID_CONNECTIONS: Partial<
     'iec61850-ied': ['none', 'iec61850'], // MMS engineering client (e.g. libiec61850 tools)
     'ethernetip-adapter': ['none', 'ethernet-ip'], // EtherNet/IP config tool (e.g. RSLinx/RSLogix-style client)
     'profinet-device': ['none', 'profinet'], // PROFINET DCP config tool (e.g. Siemens PST-style station naming/IP tool)
+    pmu: ['none', 'c37118'], // PDC-style engineering client reading the raw synchrophasor stream
     sensor: ['none', 'bacnet'], // BAS engineering client (e.g. bacpypes3 tools)
     'safety-plc': ['none'], // SIS engineering console (TriStation, Safety Builder)
     'dcs-controller': ['none'], // DCS engineering workstation (DeltaV Explorer, Experion)
@@ -645,6 +666,7 @@ export const VALID_CONNECTIONS: Partial<
     'safety-plc': ['none'],
     'dcs-controller': ['none'],
     'batch-controller': ['none'],
+    pmu: ['none'],
     'legacy-plc': ['none'], // Phase 10
     'iec104-rtu': ['none'], // Phase 10
     'process-unit': ['none'], // Phase 11
@@ -686,6 +708,7 @@ export const VALID_CONNECTIONS: Partial<
     'safety-plc': ['none'],
     'dcs-controller': ['none'],
     'batch-controller': ['none'],
+    pmu: ['none'],
     'legacy-plc': ['none'], // Phase 10
     'iec104-rtu': ['none'], // Phase 10
     'process-unit': ['none'], // Phase 11
@@ -727,6 +750,7 @@ export const VALID_CONNECTIONS: Partial<
     'safety-plc': ['none'],
     'dcs-controller': ['none'],
     'batch-controller': ['none'],
+    pmu: ['none'],
     'legacy-plc': ['none'], // Phase 10
     'iec104-rtu': ['none'], // Phase 10
     'process-unit': ['none'], // Phase 11
@@ -768,6 +792,7 @@ export const VALID_CONNECTIONS: Partial<
     'safety-plc': ['none'],
     'dcs-controller': ['none'],
     'batch-controller': ['none'],
+    pmu: ['none'],
     'legacy-plc': ['none'], // Phase 10
     'iec104-rtu': ['none'], // Phase 10
     'process-unit': ['none'], // Phase 11
@@ -856,6 +881,11 @@ export const VALID_CONNECTIONS: Partial<
     // nothing in the ST self-overrides an unexpected value (same
     // vulnerability class as the TRITON/TRISIS attack above).
     'batch-controller': ['modbus-tcp', 'none'],
+    // PMU/C37.118 attack vector: zero authentication on any command, including
+    // CMD_TURN_OFF — an unauthorized host can silence the synchrophasor stream
+    // a PDC/operator relies on for wide-area grid visibility. Real protocol
+    // property, not a simulator shortcut.
+    pmu: ['c37118', 'none'],
     // Siemens S7 attack surface: s7-enumerate (Nmap), siemens_simatic_manager (Metasploit)
     'legacy-plc': [
       's7comm',
@@ -1029,6 +1059,7 @@ const CATEGORY_NAMES: Record<DeviceCategory, string> = {
   'safety-plc': 'Safety PLC / SIS',
   'dcs-controller': 'DCS Controller',
   'batch-controller': 'Batch Controller (ISA-88)',
+  pmu: 'PMU (C37.118)',
   'legacy-plc': 'Siemens S7 PLC', // Phase 10
   'iec104-rtu': 'IEC 104 RTU', // Phase 10
   'process-unit': 'Process Unit', // Phase 11
@@ -1110,6 +1141,10 @@ const DEVICE_CABLE_CAPABILITIES: Record<DeviceCategory, Set<CableType>> = {
   'dcs-controller': new Set(['rs485', 'rs232', 'cat5e', 'cat6', 'mmf', 'smf', 'ac']),
   // Batch Controller: same OpenPLC runtime/port set as plc/safety-plc
   'batch-controller': new Set(['rs485', 'rs232', 'cat5e', 'cat6', 'ac']),
+  // PMU: all-Ethernet real-time device (both its Modbus poll leg and its
+  // upward C37.118 stream are TCP) — no serial legs needed, unlike the
+  // OpenPLC-family devices above.
+  pmu: new Set(['cat5e', 'cat6', 'ac']),
   'legacy-plc': new Set(['rs485', 'rs232', 'cat5e', 'cat6', 'ac']), // Siemens S7 — same ports
   'iec104-rtu': new Set(['rs485', 'rs232', 'cat5e', 'cat6', 'ac']), // IEC 104 RTU — same ports
   'process-unit': new Set(['cat5e', 'cat6', 'ac']), // process sim panel — Ethernet + mains

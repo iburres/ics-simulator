@@ -516,6 +516,37 @@ export function PropertiesPanel({
               </section>
             )}
 
+            {/* ── PMU config (IEEE C37.118 station identity) ──────────────────────── */}
+            {device.category === 'pmu' && device.pmu && (
+              <section className="prop-section">
+                <div className="prop-section-title">PMU (C37.118)</div>
+                {device.pmu.stationName && (
+                  <div className="prop-row">
+                    <span className="prop-label">Station</span>
+                    <span className="prop-value">{device.pmu.stationName}</span>
+                  </div>
+                )}
+                {device.pmu.idCode !== undefined && (
+                  <div className="prop-row">
+                    <span className="prop-label">IDCODE</span>
+                    <code className="prop-value">{device.pmu.idCode}</code>
+                  </div>
+                )}
+                {device.pmu.dataRateFps !== undefined && (
+                  <div className="prop-row">
+                    <span className="prop-label">Data rate</span>
+                    <span className="prop-value">{device.pmu.dataRateFps} fps</span>
+                  </div>
+                )}
+                {device.pmu.nominalFreqHz !== undefined && (
+                  <div className="prop-row">
+                    <span className="prop-label">Nominal freq</span>
+                    <span className="prop-value">{device.pmu.nominalFreqHz} Hz</span>
+                  </div>
+                )}
+              </section>
+            )}
+
             {/* ── Smart sensor config (kind chosen in dropdown) ───────────────────── */}
             {device.category === 'smart-sensor' && (
               <SensorPanel

@@ -78,7 +78,8 @@ const PALETTE: PaletteSection[] = [
       { category: 'ied', label: 'IED (DNP3)' },
       { category: 'iec61850-ied', label: 'IEC 61850 IED' },
       { category: 'ethernetip-adapter', label: 'EtherNet/IP Adapter' },
-      { category: 'profinet-device', label: 'PROFINET Device' }
+      { category: 'profinet-device', label: 'PROFINET Device' },
+      { category: 'pmu', label: 'PMU (C37.118)' }
     ]
   },
   {
@@ -243,6 +244,8 @@ const PALETTE_COLORS: Partial<Record<DeviceCategory, string>> = {
   'dcs-controller': '#58a6ff',
   // Batch Controller (ISA-88) — burnt orange, evokes heat/chemical batch process
   'batch-controller': '#db6d28',
+  // PMU (C37.118) — magenta, distinct from the control-device blues/greens/teals
+  pmu: '#db61a2',
   // Smart Controller — teal/cyan (motor/drive/actuator systems, consolidated from vfd)
   'smart-controller': '#3dc9b0',
   // IIoT devices — mint green (edge/cloud)

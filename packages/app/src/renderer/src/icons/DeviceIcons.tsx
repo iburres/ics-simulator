@@ -959,6 +959,7 @@ const ICON_MAP: Record<DeviceCategory, () => JSX.Element> = {
   'safety-plc': SafetyPlcSvg, // IEC 61511 Safety PLC / SIS — Triconex, Siemens Safety
   'dcs-controller': DcsControllerSvg, // Distributed Control System — DeltaV, Experion, 800xA
   'batch-controller': BatchControllerSvg, // ISA-88 batch control — fixed 5-phase recipe engine
+  pmu: PmuSvg, // real IEEE C37.118 device — reuses the same icon as the smart-sensor 'pmu' kind (SENSOR_KIND_ICONS below)
   'legacy-plc': LegacyPlcSvg, // Siemens S7-300/400/1200/1500 via S7comm (Phase 10)
   'iec104-rtu': Iec104RtuSvg, // IEC 60870-5-104 RTU via conpot emulation (Phase 10)
   'process-unit': ProcessUnitSvg, // physics-simulated process unit (Phase 11)
