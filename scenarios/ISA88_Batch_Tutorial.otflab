@@ -1,0 +1,258 @@
+{
+  "meta": {
+    "formatVersion": "1.0",
+    "name": "ISA-88 Batch Tutorial — Recipe Tampering Attack",
+    "description": "A guided tutorial on ISA-88 batch process control and its most distinctive attack surface: a directly writable recipe-phase register. Students run a real 5-phase batch (Charge/Heat/React/Cool/Discharge) to completion, then force-skip the REACT hold by writing an unauthorized Modbus register value — discharging an under-reacted batch with no alarm. Detection is covered with the platform's Suricata/Zeek/Grafana stack, including authoring a host-scoped custom rule. Developed for ICS/SCADA cybersecurity courses at UTSA.",
+    "sector": "chemical-batch",
+    "author": "Ian Burres — UTSA",
+    "createdAt": "2026-07-23T00:00:00.000Z",
+    "updatedAt": "2026-07-23T00:00:00.000Z",
+    "appVersion": "0.13.0",
+    "locked": false,
+    "brief": "## Mission: Recipe Integrity at Meridian Specialty Chemicals\n\nMeridian Specialty Chemicals runs a batch reactor through a fixed 5-phase ISA-88 recipe: **Charge → Heat → React → Cool → Discharge**. A contractor's laptop, still connected to the plant network from a service visit last week, has been repurposed by an attacker with direct access to the OT network — no phishing or pivoting required for this one; that ground is already covered in ICS_Lab_01 and ICS_Lab_04. Your job is to:\n\n1. Run a normal batch to completion and understand the recipe.\n2. Discover that the batch controller's phase and state registers are just ordinary, unauthenticated Modbus holding registers.\n3. Force the recipe to skip its REACT hold — the step where the actual chemical reaction happens — so the batch discharges early with **no alarm, no fault, no visible sign anything went wrong**.\n4. Detect the attack in Suricata/Zeek/Grafana, then author your own host-scoped detection rule and upgrade it to a block.\n\n**Rules of Engagement:** This is an isolated Docker lab environment. All traffic stays within your local machine.",
+    "requirements": {
+      "estimatedRamMb": 2560,
+      "estimatedCpuCores": 3,
+      "containerCount": 11
+    },
+    "tutorialSteps": [
+      {
+        "id": "step-00-welcome",
+        "title": "Welcome — ISA-88 Batch Recipe Tampering",
+        "body": "## Learning Objectives\n\nBy the end of this tutorial you will be able to:\n\n- Explain the ISA-88 batch model: a fixed unit procedure of **CHARGE → HEAT → REACT → COOL → DISCHARGE** phases, tracked by a real state machine (**IDLE / RUNNING / HELD / ABORTED / COMPLETE**)\n- Operate a real batch controller through OpenPLC's Monitoring tab, the same way a plant operator would\n- Identify the batch controller's **phase and state holding registers** as an unauthenticated write target — no different from any other Modbus register in this platform\n- Execute a **recipe-tampering attack**: force-skip the REACT hold so the batch discharges before the reaction actually completes\n- Explain why this is a **data-integrity/quality attack**, not a denial of service — the batch reports success with no alarm, even though the chemistry never finished\n- Detect the attack using Suricata, Zeek, and Grafana, then author and test your own host-scoped Suricata rule\n\n---\n\n## Why You Already Have Access\n\nThis tutorial picks up **after** initial access. A contractor's laptop was left plugged into the plant network after a service visit, and an attacker has repurposed it. The reconnaissance-to-pivot techniques that would normally get you here — OSINT, DNS enumeration, network scanning, a dual-homed device pivot — are covered in depth in **ICS_Lab_01** and **ICS_Lab_04**. This tutorial does not repeat them; it starts from direct OT network access so it can focus entirely on what happens once an attacker reaches the batch controller itself.\n\n**Click Run Simulation (blue play button) to start all containers before clicking Next.**",
+        "successCheck": "Review the objectives above. Click Run Simulation in the toolbar and wait for the status indicator to show all containers running."
+      },
+      {
+        "id": "step-01-explore",
+        "title": "Step 1 — Meet the Batch Reactor",
+        "body": "## The Equipment\n\n- **Batch Controller** (`batch-1`) — an OpenPLC-based controller running a real ISA-88 phase-sequencer program. It reads the reactor's live level and temperature, drives the charge valve/heater/agitator/cooling jacket/discharge valve, and tracks two state variables: `batch_state` (the overall lifecycle: IDLE/RUNNING/HELD/ABORTED/COMPLETE) and `current_phase` (which of the 5 recipe phases is active while RUNNING).\n- **Reactor Vessel** (`reactor-1`) — the physical batch-reactor process unit. Its level and temperature genuinely respond to the controller's valve/heater/cooling commands in real time — this is real physics, not a scripted animation.\n\n## Read the Recipe\n\n1. Switch to the **OT Process** layer tab and click the **Batch Controller** node.\n2. In the **Properties Panel**, find the **Batch Recipe (ISA-88)** section. Note the configured setpoints — you'll compare live values against these as the batch runs.\n3. Click **OpenPLC IDE ↗** to open the controller's real IEC 61131-3 runtime at `http://localhost:18080` (login `openplc` / `openplc`).\n4. In the IDE, click **Monitoring** in the left nav. This is the live variable table you'll use for the rest of this tutorial — it refreshes automatically and lets you both read and write located variables directly, exactly like an operator would at an HMI.\n\nYou should see `batch_state` and `current_phase` both reading **0** (IDLE / NONE) — the batch hasn't started yet.",
+        "successCheck": "You can locate the Batch Controller and Reactor Vessel on the OT Process layer, you've read the recipe setpoints in the Properties Panel, and the OpenPLC Monitoring tab shows batch_state=0 and current_phase=0."
+      },
+      {
+        "id": "step-02-run-batch",
+        "title": "Step 2 — Run a Normal Batch",
+        "body": "## Starting the Recipe\n\nIn OpenPLC Monitoring, find `start_cmd` (a BOOL located at `%QX0.0`). Click its **Write** column and set it to **TRUE** for one scan, then let it return to FALSE — this is a momentary start pulse, the same way a real operator's \"Start Batch\" HMI button works.\n\n**Watch what happens over the next couple of minutes:**\n\n- `batch_state` jumps to **1 (RUNNING)**\n- `current_phase` advances through the recipe on its own: **1 (CHARGE)** while the vessel fills to its charge target, then **2 (HEAT)** while the heater brings the vessel up to its setpoint temperature, then **3 (REACT)** once temperature is reached\n- Watch `level_pv` and `temp_pv` climb in Monitoring as this happens — this is the real reactor physics responding to the controller's charge-valve and heater commands\n\n**Stop here once `current_phase` reads 3 (REACT).** This is the phase where the actual chemical reaction happens — the recipe holds this phase for a fixed duration before allowing the batch to proceed to COOL. You have the full length of that hold to complete the next two steps, so don't rush, but don't leave the tab either.",
+        "successCheck": "batch_state reads 1 (RUNNING) and current_phase reads 3 (REACT). temp_pv is at or near the configured heat setpoint. The batch is now holding in REACT — proceed to the next step while it holds."
+      },
+      {
+        "id": "step-03-recon",
+        "title": "Step 3 — Reconnaissance: Document the Baseline",
+        "body": "## Think Like an Attacker\n\nBefore changing anything, a real attacker documents the current state — partly to confirm the target is in a state worth attacking, partly to understand what \"normal\" looks like well enough to fake it.\n\nIn OpenPLC Monitoring, note the current values of:\n\n- `batch_state` — should read **1 (RUNNING)**\n- `current_phase` — should read **3 (REACT)**\n- `temp_pv` — the live reactor temperature, at or near the heat setpoint\n- `level_pv` — the live reactor fill level\n\nThis is exactly the information you'd need to know *when* to strike: attacking during CHARGE or HEAT wouldn't demonstrate anything interesting (the recipe would just re-enter those phases correctly). Attacking during REACT — and forcing an early exit from it — is what actually discharges an under-reacted batch.",
+        "successCheck": "You've noted batch_state=1, current_phase=3, and the current temp_pv/level_pv values. You understand why REACT specifically is the phase worth attacking."
+      },
+      {
+        "id": "step-04-attack",
+        "title": "Step 4 — Execute the Attack: Force-Skip REACT",
+        "body": "## The Vulnerability\n\n`current_phase` is a located variable (`%QW1`, Modbus holding register 1) that the controller's own ST program reads AND writes every scan — but nothing in that program checks where a new value came from, or rejects one that doesn't match the program's own internal logic. It's exactly as unauthenticated as every other Modbus register in this platform. Any host that can reach TCP port 502 can write it directly.\n\n## The Attack\n\nOpen the **⚔ Kali Terminal** and run:",
+        "command": "python3 /root/Desktop/Attack_Scripts/batch_attack.py",
+        "successCheck": "The script prints 'ATTACK COMPLETE' confirming a Write Multiple Registers (FC 0x10) frame was sent to current_phase (HR1) with value 5 (DISCHARGE). No error, no authentication prompt — the controller accepted the write unconditionally, exactly like every other unauthenticated Modbus write in this platform."
+      },
+      {
+        "id": "step-05-consequence",
+        "title": "Step 5 — Observe the Consequence",
+        "body": "## What Just Happened\n\nSwitch back to OpenPLC Monitoring. You should see:\n\n- `current_phase` jumped straight to **5 (DISCHARGE)** — skipping the rest of the REACT hold entirely\n- The discharge valve coil (`discharge_valve_out`) energizes, and `level_pv` begins dropping as the reactor genuinely drains — this is real physics responding to the forced phase value, not a cosmetic flag flip\n- Once the level drops to the recipe's discharge target, `batch_state` advances to **4 (COMPLETE)** and `current_phase` returns to **0 (NONE)**\n\n## Why This Matters\n\nCompare this to the SIS and DCS attacks elsewhere in this platform, which stop or disable a process outright — a loud, visible denial of service. This attack is quieter and arguably more dangerous: **the batch reports COMPLETE.** No alarm fired. No fault was logged. From the controller's own point of view, everything went perfectly. The only thing wrong is invisible to the control system entirely: the chemical reaction inside that vessel never ran for its required hold time. In a real specialty-chemical process this is the mechanism by which an attacker could silently degrade product quality or safety margins — a subtler and, for an adversary, considerably more useful outcome than simply shutting the plant down.",
+        "successCheck": "current_phase reached 5 (DISCHARGE), level_pv dropped as the reactor drained, and batch_state reached 4 (COMPLETE) with current_phase back at 0. No alarm or fault indication appeared anywhere in OpenPLC Monitoring."
+      },
+      {
+        "id": "step-06-detect",
+        "title": "Step 6 — Detect the Attack",
+        "body": "## Opening the Monitor Panel\n\n1. Click the **Monitor** button in the OTForge toolbar (visible while the simulation is running).\n2. In **Live Logs**, filter by **Suricata**. You should already see an alert fired automatically from the single write you already sent — no custom rule needed yet:\n   - **SID 9000001** — \"ICS-SIM Modbus TCP Write Multiple Registers\" — a signature rule, fires on every matching packet individually. Your one attack run already triggered it.\n\n## A Second, Rate-Based Rule\n\nThere's a second pre-loaded rule worth knowing about: **SID 9000030** — \"ICS-SIM Unexpected Modbus write to OT device.\" Unlike SID 9000001, this one is a **threshold rule**: it only fires after 5 matching writes from the same source within a 10-second window. One attack run won't trigger it — that's by design, not a bug. Rate-based rules like this exist to catch scripted/repeated attack patterns without generating an alert storm on every single legitimate-looking write. See it fire yourself:\n```\nfor i in 1 2 3 4 5; do python3 /root/Desktop/Attack_Scripts/batch_attack.py > /dev/null; done\n```\n\n## Grafana\n\n3. Click **Open Grafana ↗**. In **Explore**, run:\n```\n{job=\"suricata\", event_type=\"alert\"} |= \"{{batch-1.ip}}\"\n```\nAfter the loop above you should see both SID 9000001 (multiple times) and SID 9000030 (once it crosses the threshold), scoped to the batch controller's address. Also check the **Zeek** logs:\n```\n{job=\"zeek\", filename=~\".*modbus.log\"} |= \"{{batch-1.ip}}\"\n```\nThis shows the raw connection record — source `{{attack-1.ip}}`, destination `{{batch-1.ip}}:502` — the same evidence a SOC analyst would use to begin an investigation.",
+        "command": "for i in 1 2 3 4 5; do python3 /root/Desktop/Attack_Scripts/batch_attack.py > /dev/null; done",
+        "successCheck": "You can see SID 9000001 in the Monitor's Live Logs after your first attack run, and SID 9000030 appears after the 5x loop. Both LogQL queries return matching entries in Grafana Explore scoped to the batch controller's IP."
+      },
+      {
+        "id": "step-07-custom-rule",
+        "title": "Step 7 — Write a Custom Detection Rule, Then Block It",
+        "body": "## Why Scope by Destination IP\n\nThe pre-loaded rules you just saw match *any* FC16 write to *any* device — useful as a baseline, but not specific to this batch controller. A rule scoped to the controller's own IP catches an attack on this device regardless of what host it comes from — the contractor's laptop, a different compromised workstation, anything.\n\n## Write the Alert Rule\n\n1. Click the **Suricata IDS/IPS Sensor** node (Plant DMZ zone).\n2. In the Properties Panel, scroll to **Custom Suricata Rules**.\n3. Type:\n```\nalert tcp any any -> {{batch-1.ip}} 502 (msg:\"BATCH-ALERT Unauthorized write to batch controller\"; flow:to_server,established; content:\"|10|\"; offset:7; depth:1; classtype:attempted-admin; sid:9100001; rev:1;)\n```\n4. Click **Save**, then **Stop Simulation** and **Run Simulation** again to reload the rule set. **Give it 10-15 seconds after the status shows running** before testing — Suricata reloads its full signature set (including the emerging-scada/emerging-modbus bundles) in the background, and custom rules only become active once that reload completes.\n5. Re-run the attack:\n```\npython3 /root/Desktop/Attack_Scripts/batch_attack.py\n```\n6. In Grafana Explore, re-run your query from Step 6 — you should now see SID 9100001 alongside SID 9000001.\n\n## Upgrade to a Block\n\n7. Back in **Custom Suricata Rules**, add a second line below your alert rule:\n```\nreject tcp any any -> {{batch-1.ip}} 502 (msg:\"BATCH-BLOCK Unauthorized write to batch controller\"; flow:to_server,established; content:\"|10|\"; offset:7; depth:1; classtype:attempted-admin; sid:9100002; rev:1;)\n```\n8. **Save**, **Stop Simulation**, **Run Simulation** again — and again, give it 10-15 seconds before testing.\n9. Re-run the attack one more time. This time you should NOT see a normal \"ATTACK COMPLETE\" with a response received — expect \"Connection reset by peer\" instead, since Suricata's `reject` action now tears the connection down before the write can land.",
+        "command": "python3 /root/Desktop/Attack_Scripts/batch_attack.py",
+        "successCheck": "Your alert rule (SID 9100001) fired on the first re-test. After adding the reject rule (SID 9100002) and restarting, re-running the attack script produced a connection error rather than a clean ATTACK COMPLETE — confirming the write was blocked, not just detected."
+      },
+      {
+        "id": "step-08-debrief",
+        "title": "Step 8 — Debrief and Lab Report",
+        "body": "## Vulnerabilities Exploited\n\n- **Unauthenticated, writable recipe-state registers** — `current_phase` and `batch_state` are ordinary Modbus holding registers with no access control and no validation against the controller's own program logic.\n  - *Mitigation:* a real elapsed-time watchdog inside the ST program itself (tracking actual wall-clock time in REACT, independent of the phase register's own value) would at minimum detect the discrepancy; IEC 62443 zone/conduit segmentation would prevent the write from arriving at all.\n- **Missing network segmentation** — the attack machine reached the batch controller directly because the firewall's policy allows it (see the **INTENTIONALLY INSECURE** rule on the Plant Firewall node).\n  - *Mitigation:* select the **Plant Firewall** node, find that rule, and change its action from `allow` to `deny`. Stop and restart the simulation, then re-run the attack script — it should now fail to connect at all.\n\n## Detection Recap\n\nTwo pre-loaded rules fired automatically on the very first attack (SID 9000001, SID 9000030) with zero authoring effort. Your host-scoped rule (SID 9100001) added precision; upgrading it to `reject` (SID 9100002) converted detection into prevention — but only for this one device. The underlying architectural gap (a contractor's laptop with standing OT network access) is still unresolved; that's a network-design problem, not a Suricata rule.\n\n## Challenge Exercise\n\nTry the bonus attack variant — a denial-of-service instead of the quality-integrity attack you just performed:\n```\npython3 /root/Desktop/Attack_Scripts/batch_attack.py --register 0 --value 3\n```\nThis writes `batch_state=3` (ABORTED) directly, forcing an immediate stop from any phase. Compare how this shows up in Monitoring and Grafana versus the REACT-skip attack — which one would a human operator notice faster, and which one actually reaches your custom rule (hint: check the function code both attacks use)?\n\n## Lab Report Requirements\n\nSubmit a **PDF or Word document** containing:\n\n1. **Attack Chain Summary** — describe the recipe-tampering attack in your own words: what register was written, what value, and why REACT specifically was the target.\n2. **Vulnerability Analysis** — for the unauthenticated register write and the missing segmentation, explain what the vulnerability is and what mitigation would prevent it.\n3. **Detection Analysis** — explain what SID 9000001/9000030/9100001/9100002 each indicate, and why destination-IP scoping makes your custom rule more precise than the baseline rules.\n4. **Reflection** — why is a quality/data-integrity attack like this one arguably more dangerous in a real chemical plant than a straightforward denial-of-service, even though it's less immediately visible?\n\nInclude one labeled screenshot per step in an Appendices section at the end (no screenshots in the main written section).",
+        "successCheck": "You can describe the full attack chain, name the two mitigations, and have completed (or at least attempted) the challenge exercise. Your lab report contains all four written sections plus a labeled Appendices section."
+      }
+    ]
+  },
+  "visual": {
+    "nodes": [
+      {
+        "id": "batch-1",
+        "type": "batch-controller",
+        "position": { "x": 120, "y": 200 },
+        "data": { "label": "Batch Controller", "zone": "ot" }
+      },
+      {
+        "id": "reactor-1",
+        "type": "process-unit",
+        "position": { "x": 360, "y": 200 },
+        "data": { "label": "Reactor Vessel", "zone": "ot" }
+      },
+      {
+        "id": "switch-ot",
+        "type": "switch",
+        "position": { "x": 120, "y": 360 },
+        "data": { "label": "OT Switch", "zone": "ot" }
+      },
+      {
+        "id": "firewall-1",
+        "type": "firewall",
+        "position": { "x": 320, "y": 360 },
+        "data": { "label": "Plant Firewall", "zone": "plant-dmz" }
+      },
+      {
+        "id": "ids-1",
+        "type": "ids-ips",
+        "position": { "x": 500, "y": 360 },
+        "data": { "nodeId": "ids-1", "label": "Suricata IDS/IPS\nSensor", "category": "ids-ips", "zone": "plant-dmz" }
+      },
+      {
+        "id": "attack-1",
+        "type": "attack-machine",
+        "position": { "x": 500, "y": 200 },
+        "data": { "label": "Kali Linux", "zone": "attacker" }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-batch-reactor",
+        "source": "batch-1",
+        "target": "reactor-1",
+        "data": { "protocol": "modbus-tcp", "label": "Modbus TCP :502", "fluidType": "electric" }
+      },
+      {
+        "id": "e-batch-switch",
+        "source": "batch-1",
+        "target": "switch-ot",
+        "data": { "protocol": "none", "label": "" }
+      },
+      {
+        "id": "e-switch-firewall",
+        "source": "switch-ot",
+        "target": "firewall-1",
+        "data": { "protocol": "none", "label": "" }
+      },
+      {
+        "id": "e-firewall-ids",
+        "source": "firewall-1",
+        "target": "ids-1",
+        "data": { "protocol": "none", "label": "" }
+      },
+      {
+        "id": "e-attack-ids",
+        "source": "attack-1",
+        "target": "ids-1",
+        "data": { "protocol": "none", "label": "Monitored traffic" }
+      },
+      {
+        "id": "e-attack-batch",
+        "source": "attack-1",
+        "target": "batch-1",
+        "data": { "protocol": "modbus-tcp", "label": "Direct OT access (extraNetworks)" }
+      }
+    ],
+    "viewport": { "x": 0, "y": 0, "zoom": 0.9 }
+  },
+  "network": {
+    "segments": [
+      {
+        "zone": "ot",
+        "subnet": "10.200.10.0/24",
+        "gateway": "10.200.10.1",
+        "dockerNetwork": "ics-sim-ot-net"
+      },
+      {
+        "zone": "plant-dmz",
+        "subnet": "10.200.30.0/24",
+        "gateway": "10.200.30.1",
+        "dockerNetwork": "ics-sim-plant-dmz-net"
+      },
+      {
+        "zone": "attacker",
+        "subnet": "10.200.60.0/24",
+        "gateway": "10.200.60.1",
+        "dockerNetwork": "ics-sim-attacker-net"
+      }
+    ],
+    "routes": []
+  },
+  "devices": {
+    "devices": {
+      "batch-1": {
+        "nodeId": "batch-1",
+        "category": "batch-controller",
+        "ipAddress": "10.200.10.15",
+        "protocols": ["modbus-tcp"],
+        "batch": {
+          "recipeName": "Specialty Polymer Batch — Recipe REV C",
+          "chargeTargetPct": 60,
+          "heatSetpointC": 55,
+          "reactHoldSec": 45,
+          "coolSetpointC": 30,
+          "dischargeTargetPct": 5
+        }
+      },
+      "reactor-1": {
+        "nodeId": "reactor-1",
+        "category": "process-unit",
+        "ipAddress": "10.200.10.20",
+        "protocols": ["modbus-tcp"],
+        "processUnit": {
+          "processType": "batch-reactor",
+          "tankVolumeL": 500,
+          "tankAreaM2": 1,
+          "valveFlowMaxLpm": 600,
+          "heaterRateCPerSec": 1.5,
+          "coolingRateCPerSec": 2.0,
+          "initialLevelPct": 0
+        }
+      },
+      "switch-ot": {
+        "nodeId": "switch-ot",
+        "category": "switch",
+        "ipAddress": "10.200.10.30",
+        "protocols": ["none"]
+      },
+      "firewall-1": {
+        "nodeId": "firewall-1",
+        "category": "firewall",
+        "ipAddress": "10.200.30.10",
+        "protocols": ["none"]
+      },
+      "attack-1": {
+        "nodeId": "attack-1",
+        "category": "attack-machine",
+        "ipAddress": "10.200.60.10",
+        "protocols": ["none"],
+        "extraNetworks": ["ot"]
+      }
+    }
+  },
+  "security": {
+    "defaultFirewallPolicy": "deny",
+    "firewallRules": [
+      {
+        "id": "rule-allow-attacker-ot-modbus",
+        "sourceZone": "attacker",
+        "destinationZone": "ot",
+        "protocol": "tcp",
+        "destinationPort": 502,
+        "action": "allow",
+        "comment": "INTENTIONALLY INSECURE: a contractor's laptop, still connected from a service visit, gives the attack machine direct Modbus access to the OT network. Students flip this to deny in the closing challenge exercise."
+      }
+    ],
+    "ids": {
+      "enabledRulesets": ["emerging-scada", "emerging-modbus"],
+      "disabledRuleIds": [],
+      "zeekScripts": ["modbus.zeek"]
+    },
+    "logging": {
+      "retentionDays": 7,
+      "influxdbEnabled": true,
+      "lokiEnabled": true
+    }
+  },
+  "registry": [],
+  "packLayers": []
+}
