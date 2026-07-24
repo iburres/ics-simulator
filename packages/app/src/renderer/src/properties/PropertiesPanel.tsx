@@ -548,7 +548,10 @@ export function PropertiesPanel({
             )}
 
             {/* ── Smart sensor config (kind chosen in dropdown) ───────────────────── */}
-            {device.category === 'smart-sensor' && (
+            {/* iiot-sensor reuses the same SensorConfig shape/editor — it's a
+                standalone MQTT publisher rather than a Modbus field device,
+                but the waveform/kind/range fields it publishes are identical. */}
+            {(device.category === 'smart-sensor' || device.category === 'iiot-sensor') && (
               <SensorPanel
                 sensorConfig={device.sensor}
                 nodeId={device.nodeId}

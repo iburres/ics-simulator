@@ -82,10 +82,10 @@ const DEVICE_IMAGES: Record<DeviceCategory, string> = {
   pmu: 'ghcr.io/iburres/otforge-pmu:latest',
   // BACnet/IP device — bacpypes3 Python server on Alpine (containers/bacnet)
   sensor: 'ghcr.io/iburres/otforge-bacnet:latest',
-  // STUB: IIoT sensor — MQTT publisher stub until otforge-iiot-sensor is built.
-  'iiot-sensor': 'ghcr.io/iburres/alpine:latest',
-  // STUB: IoT gateway — MQTT broker/bridge stub until otforge-iot-gateway is built.
-  'iot-gateway': 'ghcr.io/iburres/alpine:latest',
+  // Real IIoT sensor — standalone MQTT publisher, paho-mqtt client (containers/iiot-sensor).
+  'iiot-sensor': 'ghcr.io/iburres/otforge-iiot-sensor:latest',
+  // Real IoT gateway — real Mosquitto broker + Python Modbus-to-MQTT bridge sidecar (containers/iot-gateway).
+  'iot-gateway': 'ghcr.io/iburres/otforge-iot-gateway:latest',
   // Real Modbus TCP outstation — same pymodbus server image as rtu (containers/modbus).
   // server.py generates the configured waveform; FUXA cannot act as a Modbus server,
   // so this needs to be a real container, not a "no container, FUXA generates it" device.
@@ -522,6 +522,53 @@ export function generateCompose(
     }
   }
 
+  // ── IIoT sensor → gateway broker IP map ─────────────────────────────────────
+  // Scan canvas edges to find which iot-gateway (if any) each iiot-sensor is
+  // directly wired to — used below to inject MQTT_BROKER_IP so the sensor's
+  // paho-mqtt publisher knows where to connect at container startup (see
+  // containers/iiot-sensor/server.py). Single-target edge scan, same shape
+  // as pmuToGeneratorNodeId above — an iiot-sensor publishes to exactly one
+  // gateway, not a fan-out relationship.
+  const iiotSensorToGatewayNodeId = new Map<string, string>()
+  for (const edge of scenario.visual.edges) {
+    const srcDevice = scenario.devices.devices[edge.source]
+    const tgtDevice = scenario.devices.devices[edge.target]
+    if (!srcDevice || !tgtDevice) continue
+    if (srcDevice.category === 'iiot-sensor' && tgtDevice.category === 'iot-gateway') {
+      iiotSensorToGatewayNodeId.set(edge.source, edge.target)
+    } else if (tgtDevice.category === 'iiot-sensor' && srcDevice.category === 'iot-gateway') {
+      iiotSensorToGatewayNodeId.set(edge.target, edge.source)
+    }
+  }
+
+  // ── IoT gateway → Modbus field device map ───────────────────────────────────
+  // Scan canvas edges to find which smart-controller/smart-sensor field
+  // devices (if any) each iot-gateway is directly wired to — used below to
+  // inject GATEWAY_FIELD_DEVICES so the gateway's Python sidecar knows which
+  // field devices to poll over Modbus and bridge onto its own MQTT broker
+  // (see containers/iot-gateway/sidecar.py). Identical fan-in shape to
+  // dcsToFieldDeviceNodeIds above — reuses the same isFieldDevice() helper.
+  const gatewayToFieldDeviceNodeIds = new Map<string, string[]>()
+  for (const edge of scenario.visual.edges) {
+    const srcDevice = scenario.devices.devices[edge.source]
+    const tgtDevice = scenario.devices.devices[edge.target]
+    if (!srcDevice || !tgtDevice) continue
+    let gatewayNodeId: string | null = null
+    let fieldNodeId: string | null = null
+    if (srcDevice.category === 'iot-gateway' && isFieldDevice(tgtDevice.category)) {
+      gatewayNodeId = edge.source
+      fieldNodeId = edge.target
+    } else if (tgtDevice.category === 'iot-gateway' && isFieldDevice(srcDevice.category)) {
+      gatewayNodeId = edge.target
+      fieldNodeId = edge.source
+    }
+    if (gatewayNodeId && fieldNodeId) {
+      const existing = gatewayToFieldDeviceNodeIds.get(gatewayNodeId) ?? []
+      existing.push(fieldNodeId)
+      gatewayToFieldDeviceNodeIds.set(gatewayNodeId, existing)
+    }
+  }
+
   // ── IP deduplication ────────────────────────────────────────────────────────
   // Tracks host octets already assigned per Docker network so that stale or
   // duplicate IPs in the scenario JSON never produce an invalid compose file.
@@ -784,6 +831,28 @@ ${deviceBlocks}
       }
     }
 
+    // IIoT sensor — real MQTT publisher (containers/iiot-sensor). Injects
+    // MQTT_BROKER_IP when wired to an iot-gateway; sensor kind/waveform env
+    // vars are injected unconditionally below via the existing device.sensor
+    // block (reused as-is, same as smart-sensor). Omitted entirely when
+    // unwired — the container still starts cleanly and idles (see
+    // server.py's module docstring) rather than crash-looping.
+    if (device.category === 'iiot-sensor') {
+      const gatewayNodeId = iiotSensorToGatewayNodeId.get(nodeId)
+      if (gatewayNodeId) {
+        const gatewayIp =
+          claimedDeviceIps.get(gatewayNodeId) ??
+          resolveDeviceIp(
+            scenario.devices.devices[gatewayNodeId].ipAddress,
+            scenario,
+            effectiveZones
+          )
+        const iiotEnv: string[] = services[serviceName].environment ?? []
+        iiotEnv.push(`MQTT_BROKER_IP=${gatewayIp}`)
+        services[serviceName].environment = iiotEnv
+      }
+    }
+
     // Controller-specific env vars — injected for smart-controller devices only.
     // Visible in container logs / Properties Panel either way, but CONTROLLER_KIND and
     // the headline numeric fields (CONTROLLER_RATED_FLOW_LPM, CONTROLLER_MAX_FREQUENCY_HZ,
@@ -843,6 +912,32 @@ ${deviceBlocks}
         const dcsEnv: string[] = services[serviceName].environment ?? []
         dcsEnv.push(`DCS_FIELD_DEVICES=${fieldDeviceEntries.join(',')}`)
         services[serviceName].environment = dcsEnv
+      }
+    }
+
+    // IoT gateway — inject the field devices (smart-controller/smart-sensor)
+    // this gateway is directly wired to, so containers/iot-gateway/sidecar.py
+    // knows which Modbus TCP hosts to poll and bridge onto its own MQTT
+    // broker at startup. Omitted entirely when the gateway has no connecting
+    // field-device edges yet — the broker is still fully available for any
+    // directly-wired iiot-sensor publishers regardless (see sidecar.py's
+    // module docstring). Identical shape to the DCS_FIELD_DEVICES block above.
+    if (device.category === 'iot-gateway') {
+      const fieldDeviceNodeIds = gatewayToFieldDeviceNodeIds.get(nodeId) ?? []
+      if (fieldDeviceNodeIds.length > 0) {
+        const fieldDeviceEntries = fieldDeviceNodeIds.map(fieldNodeId => {
+          const fieldIp =
+            claimedDeviceIps.get(fieldNodeId) ??
+            resolveDeviceIp(
+              scenario.devices.devices[fieldNodeId].ipAddress,
+              scenario,
+              effectiveZones
+            )
+          return `${sanitizeServiceName(fieldNodeId)}|${fieldIp}`
+        })
+        const gatewayEnv: string[] = services[serviceName].environment ?? []
+        gatewayEnv.push(`GATEWAY_FIELD_DEVICES=${fieldDeviceEntries.join(',')}`)
+        services[serviceName].environment = gatewayEnv
       }
     }
 
