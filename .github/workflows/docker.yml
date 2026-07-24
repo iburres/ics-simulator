@@ -56,6 +56,13 @@ jobs:
           # Modbus TCP, re-exposes as a real synchrophasor stream on port 4712.
           - image: otforge-pmu
             context: containers/pmu
+          # IIoT/MQTT — iiot-sensor is a standalone MQTT publisher (paho-mqtt);
+          # iot-gateway hosts a real Mosquitto broker plus a Python sidecar that
+          # bridges wired Modbus field devices onto the same broker.
+          - image: otforge-iiot-sensor
+            context: containers/iiot-sensor
+          - image: otforge-iot-gateway
+            context: containers/iot-gateway
           - image: otforge-firewall
             context: containers/firewall
           - image: otforge-switch

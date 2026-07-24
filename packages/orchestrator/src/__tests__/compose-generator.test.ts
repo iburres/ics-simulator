@@ -901,6 +901,117 @@ describe('dcs-controller — real device', () => {
   })
 })
 
+describe('iiot-sensor — MQTT publisher', () => {
+  it('gives iiot-sensor the otforge-iiot-sensor image — a real container, not the alpine stub', () => {
+    const compose = gen(
+      makeScenario([['sensor-1', { category: 'iiot-sensor', ipAddress: '10.200.10.30' }]])
+    )
+    expect(compose.services['sensor-1']).toBeDefined()
+    expect(compose.services['sensor-1'].image).toBe('ghcr.io/iburres/otforge-iiot-sensor:latest')
+  })
+
+  it('assigns the 64m/0.1 resource limit to iiot-sensor', () => {
+    const compose = gen(
+      makeScenario([['sensor-1', { category: 'iiot-sensor', ipAddress: '10.200.10.30' }]])
+    )
+    expect(compose.services['sensor-1'].deploy.resources.limits.memory).toBe('64m')
+    expect(compose.services['sensor-1'].deploy.resources.limits.cpus).toBe('0.1')
+  })
+
+  it('injects MQTT_BROKER_IP from a direct edge to an iot-gateway', () => {
+    const scenario = makeScenario([
+      ['sensor-1', { category: 'iiot-sensor', ipAddress: '10.200.10.30' }],
+      ['gateway-1', { category: 'iot-gateway', ipAddress: '10.200.10.31' }]
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'sensor-1', target: 'gateway-1', data: { protocol: 'mqtt' } }
+    ]
+    const env = gen(scenario).services['sensor-1'].environment ?? []
+    expect(env).toContain('MQTT_BROKER_IP=10.200.10.31')
+  })
+
+  it('omits MQTT_BROKER_IP entirely when the iiot-sensor has no connecting edges', () => {
+    const compose = gen(
+      makeScenario([['sensor-1', { category: 'iiot-sensor', ipAddress: '10.200.10.30' }]])
+    )
+    const env = compose.services['sensor-1'].environment ?? []
+    expect(env.some(v => v.startsWith('MQTT_BROKER_IP'))).toBe(false)
+  })
+})
+
+describe('iot-gateway — real MQTT broker + Modbus bridge', () => {
+  it('gives iot-gateway the otforge-iot-gateway image — a real container, not the alpine stub', () => {
+    const compose = gen(
+      makeScenario([['gateway-1', { category: 'iot-gateway', ipAddress: '10.200.10.31' }]])
+    )
+    expect(compose.services['gateway-1']).toBeDefined()
+    expect(compose.services['gateway-1'].image).toBe('ghcr.io/iburres/otforge-iot-gateway:latest')
+  })
+
+  it('assigns the 96m/0.2 resource limit to iot-gateway', () => {
+    const compose = gen(
+      makeScenario([['gateway-1', { category: 'iot-gateway', ipAddress: '10.200.10.31' }]])
+    )
+    expect(compose.services['gateway-1'].deploy.resources.limits.memory).toBe('96m')
+    expect(compose.services['gateway-1'].deploy.resources.limits.cpus).toBe('0.2')
+  })
+
+  it('injects GATEWAY_FIELD_DEVICES from a single edge to a smart-sensor', () => {
+    const scenario = makeScenario([
+      ['gateway-1', { category: 'iot-gateway', ipAddress: '10.200.10.31' }],
+      ['sensor-1', { category: 'smart-sensor', ipAddress: '10.200.10.12' }]
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'gateway-1', target: 'sensor-1', data: { protocol: 'modbus-tcp' } }
+    ]
+    const env = gen(scenario).services['gateway-1'].environment ?? []
+    expect(env).toContain('GATEWAY_FIELD_DEVICES=sensor-1|10.200.10.12')
+  })
+
+  it('injects GATEWAY_FIELD_DEVICES as a comma-separated list from multiple edges', () => {
+    const scenario = makeScenario([
+      ['gateway-1', { category: 'iot-gateway', ipAddress: '10.200.10.31' }],
+      [
+        'pump-1',
+        { category: 'smart-controller', ipAddress: '10.200.10.11', controller: { kind: 'pump' } }
+      ],
+      ['sensor-1', { category: 'smart-sensor', ipAddress: '10.200.10.12' }]
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'gateway-1', target: 'pump-1', data: { protocol: 'modbus-tcp' } },
+      { id: 'e2', source: 'sensor-1', target: 'gateway-1', data: { protocol: 'modbus-tcp' } }
+    ]
+    const env = gen(scenario).services['gateway-1'].environment ?? []
+    const fieldDevicesEnv = env.find(v => v.startsWith('GATEWAY_FIELD_DEVICES='))
+    expect(fieldDevicesEnv).toBeDefined()
+    const entries = fieldDevicesEnv!.slice('GATEWAY_FIELD_DEVICES='.length).split(',')
+    expect(entries).toEqual(
+      expect.arrayContaining(['pump-1|10.200.10.11', 'sensor-1|10.200.10.12'])
+    )
+    expect(entries).toHaveLength(2)
+  })
+
+  it('omits GATEWAY_FIELD_DEVICES entirely when the gateway has no connecting field-device edges', () => {
+    const compose = gen(
+      makeScenario([['gateway-1', { category: 'iot-gateway', ipAddress: '10.200.10.31' }]])
+    )
+    const env = compose.services['gateway-1'].environment ?? []
+    expect(env.some(v => v.startsWith('GATEWAY_FIELD_DEVICES'))).toBe(false)
+  })
+
+  it('does not pull an edge to an unrelated category (e.g. hmi) into the field-device list', () => {
+    const scenario = makeScenario([
+      ['gateway-1', { category: 'iot-gateway', ipAddress: '10.200.10.31' }],
+      ['hmi-1', { category: 'hmi', ipAddress: '10.200.20.10' }]
+    ])
+    scenario.visual.edges = [
+      { id: 'e1', source: 'gateway-1', target: 'hmi-1', data: { protocol: 'opc-ua' } }
+    ]
+    const env = gen(scenario).services['gateway-1'].environment ?? []
+    expect(env.some(v => v.startsWith('GATEWAY_FIELD_DEVICES'))).toBe(false)
+  })
+})
+
 describe('pmu — real IEEE C37.118 device', () => {
   function generatorUnit(id: string, ip: string): [string, DeviceOverrides] {
     return [
