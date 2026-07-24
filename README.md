@@ -10,6 +10,11 @@ Developed by **Ian Burres**, Professor of Practice at the University of Texas at
 
 ---
 
+> ### 🆕 Milestone: Real Active Directory Support
+> OTForge now ships a genuine **Samba4 Active Directory Domain Controller** — real LDAP, real **Kerberos**, and real SMB, not a simulated stand-in. This closes the IT/Enterprise zone and completes coverage across every Purdue-model layer OTForge models, from field-level OT protocols up through enterprise identity infrastructure. Point real tools — `ldapsearch`, `kinit`, `smbclient`, `rpcclient`, impacket — at a live domain and get back genuine protocol responses. See [Protocol Support](#protocol-support) below.
+
+---
+
 ## Screenshots
 
 ![OTForge SCADA canvas — OT layer with water treatment devices](docs/screenshots/canvas-ot-layer.png)
@@ -49,7 +54,7 @@ OTForge lets you design, deploy, and attack realistic ICS/SCADA environments usi
   - **OT (L0–L2)** — PLCs, RTUs, IEDs, sensors, actuators, field devices
   - **Control Center (L3)** — HMI, historian, engineering workstation, application/database servers
   - **Plant DMZ (L3.5)** — Firewall, IDS/IPS, router, switch
-  - **Enterprise (L4)** — Domain controller, web/business servers, enterprise desktops
+  - **Enterprise (L4)** — Real Samba4 Active Directory domain controller (LDAP/Kerberos/SMB), web/business servers, enterprise desktops
   - **Internet DMZ (L5)** — Email servers, internet-facing servers
   - **Red Team** — Kali Linux attack machine (isolated attacker network)
 - Zone-aware firewall rule editor with nftables enforcement
@@ -95,6 +100,7 @@ Real protocol packets flow on Docker virtual networks — scanner tools and expl
 | Modbus TCP (process sim) | pymodbus 3.7 + physics loop (water tank / pipeline / generator) | TCP 502 |
 | HTTP (company site) | nginx 1.27 — Meridian Process Controls OSINT target | TCP 80 |
 | DNS | dnsmasq — authoritative resolver for meridian-process.com | UDP/TCP 53 |
+| LDAP / LDAPS / Kerberos / SMB | Samba 4 Active Directory Domain Controller | TCP 389 / 636 / 88 / 445 |
 
 ---
 
@@ -277,6 +283,15 @@ Additional labs and scenario packs will be published in the [otforge-scenarios](
 ---
 
 ## Recent Additions
+
+### Real Active Directory Domain Controller
+The **domain-controller** device is now a genuine Samba4 Active Directory Domain Controller, not a stub — the first real implementation of enterprise identity infrastructure anywhere in OTForge.
+
+- Provisioned automatically at container start (`samba-tool domain provision`) with a realistic seeded domain — organizational units, employee accounts, and security groups across IT/Engineering/Operations departments
+- Serves real **LDAP** (389/636), real **Kerberos** (88), and real **SMB** (445) simultaneously — the same three protocols a real Windows domain runs on
+- Genuine security behavior, not a simplified stand-in: unencrypted LDAP binds are correctly rejected, legacy SMB1 is refused, and directory enumeration requires real authentication — exactly like production Active Directory
+- Students can run real tools against it from the Kali attack machine: `ldapsearch`, `kinit`, `smbclient`, `rpcclient`, and impacket's example scripts (now joined by `ldap3` and the BloodHound Python collector)
+- Closes the IT/Enterprise zone gap — OTForge now models every layer of the Purdue Reference Model with a real running service, from field-level OT protocols through enterprise identity infrastructure
 
 ### Apple Silicon (ARM64) Native Support
 All container images now build and run natively on Apple Silicon Macs (M1/M2/M3/M4) — no QEMU emulation, no architecture mismatch warnings in Docker Desktop.
