@@ -111,6 +111,9 @@ const PROTOCOL_COLORS: Partial<Record<Protocol, string>> = {
   mqtt: '#e87040', // MQTT — orange; IIoT broker-based pub/sub
   profinet: '#00a0e3', // PROFINET — Siemens/PI brand blue
   c37118: '#db61a2', // IEEE C37.118 synchrophasor — matches the pmu device's palette color
+  ldap: '#a371f7', // LDAP — matches the domain-controller device's enterprise-zone palette color
+  kerberos: '#a371f7', // Kerberos — same AD family color as LDAP/SMB
+  smb: '#a371f7', // SMB — same AD family color as LDAP/Kerberos
   none: '#484f58'
 }
 

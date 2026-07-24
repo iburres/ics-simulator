@@ -95,6 +95,9 @@ const CONNECTION_OPTIONS: { protocol: Protocol; label: string; color: string }[]
   { protocol: 'ethernet-ip', label: 'EtherNet/IP', color: '#f85149' },
   { protocol: 'iec61850', label: 'IEC 61850', color: '#a371f7' },
   { protocol: 'mqtt', label: 'MQTT', color: '#e87040' },
+  { protocol: 'ldap', label: 'LDAP', color: '#a371f7' },
+  { protocol: 'kerberos', label: 'Kerberos', color: '#a371f7' },
+  { protocol: 'smb', label: 'SMB', color: '#a371f7' },
   { protocol: 'none', label: 'Unspecified / Ethernet', color: '#484f58' }
 ]
 

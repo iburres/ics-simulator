@@ -119,8 +119,9 @@ const DEVICE_IMAGES: Record<DeviceCategory, string> = {
   // STUB: Wireless AP — Alpine stub; real 802.11 simulation requires host Wi-Fi adapter.
   wap: 'ghcr.io/iburres/alpine:latest',
   // ── Enterprise Zone (Level 4) ───────────────────────────────────────────────
-  // STUB: Replace with otforge-dc (Samba AD domain controller) once published.
-  'domain-controller': 'ghcr.io/iburres/alpine:latest',
+  // Real Samba4 Active Directory Domain Controller — LDAP (389/636),
+  // Kerberos (88), SMB (445) (containers/dc).
+  'domain-controller': 'ghcr.io/iburres/otforge-dc:latest',
   // STUB: nginx:alpine serves HTTP. Replace with otforge-webserver once published.
   'web-server': 'nginx:alpine',
   // STUB: Replace with otforge-bizserver once published.
@@ -2002,6 +2003,24 @@ function buildDeviceEnv(
   // this override is only emitted when the scenario configures a different domain.
   if (device.mail?.domain) {
     env.push(`MAIL_DOMAIN=${device.mail.domain}`)
+  }
+
+  // Domain controller — inject AD realm/NetBIOS/admin-password overrides from
+  // the optional DomainControllerConfig. The container Dockerfile already
+  // sets AD_DOMAIN=MERIDIAN.LOCAL, AD_NETBIOS=MERIDIAN, and known default
+  // passwords; these overrides are only emitted when the scenario explicitly
+  // configures different values, keeping the Compose YAML clean (same
+  // convention as the DNS/mail blocks above).
+  if (device.domainController) {
+    if (device.domainController.domainName) {
+      env.push(`AD_DOMAIN=${device.domainController.domainName}`)
+    }
+    if (device.domainController.netbiosName) {
+      env.push(`AD_NETBIOS=${device.domainController.netbiosName}`)
+    }
+    if (device.domainController.adminPassword) {
+      env.push(`AD_ADMIN_PASSWORD=${device.domainController.adminPassword}`)
+    }
   }
 
   // PMU station identity — consumed by containers/pmu/server.py. Informational

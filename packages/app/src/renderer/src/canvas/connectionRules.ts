@@ -987,8 +987,10 @@ export const VALID_CONNECTIONS: Partial<
     'engineering-workstation': ['none'],
     'application-server': ['none'],
     'database-server': ['none'],
-    // Enterprise zone targets — lateral movement and credential attacks
-    'domain-controller': ['none'],
+    // Enterprise zone targets — lateral movement and credential attacks.
+    // Real Samba4 AD DC: LDAP enumeration/bind, Kerberos AS-REQ (Kerberoasting/
+    // AS-REP-roasting via impacket's example scripts), SMB session/share access.
+    'domain-controller': ['ldap', 'kerberos', 'smb', 'none'],
     'web-server': ['none'],
     'business-server': ['none'],
     'enterprise-desktop': ['none'],

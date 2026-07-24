@@ -63,6 +63,10 @@ jobs:
             context: containers/iiot-sensor
           - image: otforge-iot-gateway
             context: containers/iot-gateway
+          # Real Samba4 Active Directory Domain Controller — LDAP (389/636),
+          # Kerberos (88), SMB (445), Enterprise Zone.
+          - image: otforge-dc
+            context: containers/dc
           - image: otforge-firewall
             context: containers/firewall
           - image: otforge-switch
