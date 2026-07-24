@@ -101,6 +101,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git vim nano \
     && rm -rf /var/lib/apt/lists/*
 
+# ── Layer 6b: Active Directory enumeration/collection tooling ────────────────
+# ldap3: real LDAP bind/search client for AD enumeration (impacket above
+# already covers Kerberoasting/AS-REP-roasting/secretsdump/pass-the-hash via
+# its example scripts). bloodhound: the BloodHound Python collector, produces
+# standard JSON collection files from a real AD environment (no BloodHound
+# GUI/Neo4j is bundled here -- students analyze the JSON output separately).
+RUN pip3 install --no-cache-dir --break-system-packages \
+    ldap3 \
+    bloodhound
+
 # ── Layer 7: Python ICS protocol libraries + noVNC WebSocket bridge ───────────
 # websockify bridges VNC port 5901 → WebSocket port 6080 (the Electron webview
 # connects to 6080 via noVNC). Installing via pip is more reliable than the

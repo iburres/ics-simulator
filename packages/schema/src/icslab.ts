@@ -26,6 +26,9 @@ export type Protocol =
   | 'iec-104' // IEC 60870-5-104 telecontrol protocol (port 2404)
   | 'mqtt' // Message Queuing Telemetry Transport — IIoT sensors, cloud gateways, broker-based pub/sub
   | 'c37118' // IEEE C37.118 synchrophasor protocol — PMU/PDC wide-area grid monitoring (port 4712)
+  | 'ldap' // Lightweight Directory Access Protocol — Active Directory bind/search (port 389)
+  | 'kerberos' // Kerberos network authentication (AS-REQ/TGT, port 88) — Active Directory domain auth
+  | 'smb' // Server Message Block file/print sharing — Active Directory domain (port 445)
   | 'none'
 
 /**
@@ -537,6 +540,36 @@ export interface MailConfig {
 }
 
 /**
+ * Runtime configuration for an otforge-dc container.
+ *
+ * The container runs a real Samba4 Active Directory Domain Controller,
+ * provisioned at first start via `samba-tool domain provision` and serving
+ * real LDAP (389), Kerberos (88), and SMB (445) — a realistic small
+ * OU/user/group structure is seeded automatically, with no deliberately
+ * weak/vulnerable accounts (that content belongs to a future attack
+ * tutorial, not this device's baseline).
+ *
+ * Deliberately distinct from the public internet-facing meridian-process.com
+ * DNS zone (DnsConfig above) — real organizations commonly split their
+ * public site domain from their internal AD namespace the same way.
+ *
+ * All fields are optional — the container Dockerfile sets safe defaults:
+ *   AD_DOMAIN         = MERIDIAN.LOCAL
+ *   AD_NETBIOS        = MERIDIAN
+ *   AD_ADMIN_PASSWORD = a fixed default (visible in container docs/logs,
+ *                       matching this project's convention of every device
+ *                       shipping a knowable default credential)
+ */
+export interface DomainControllerConfig {
+  /** Fully-qualified AD domain/realm name (default: MERIDIAN.LOCAL). */
+  domainName?: string
+  /** Short NetBIOS domain name (default: MERIDIAN). */
+  netbiosName?: string
+  /** Administrator account password set during provisioning (default: a fixed known value). */
+  adminPassword?: string
+}
+
+/**
  * Safety Instrumented System configuration for safety-plc devices (IEC 61511).
  *
  * These fields are informational — they are injected as environment variables
@@ -832,6 +865,7 @@ export interface DeviceConfig {
   processUnit?: ProcessUnitConfig // Physics process simulation config (Phase 11)
   dns?: DnsConfig // DNS server config (dns-server devices, Phase 12)
   mail?: MailConfig // Mail server config (email-server devices)
+  domainController?: DomainControllerConfig // Samba4 AD config (domain-controller devices)
   plcProgram?: PLCProgramConfig
   safetyPlc?: SafetyPlcConfig // SIS config for safety-plc devices
   batch?: BatchConfig // ISA-88 recipe config for batch-controller devices

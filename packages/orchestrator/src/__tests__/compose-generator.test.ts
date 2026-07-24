@@ -1457,6 +1457,85 @@ describe('DNS device environment variable injection', () => {
   })
 })
 
+describe('domain-controller — real Samba4 AD device', () => {
+  it('gives domain-controller the otforge-dc image — a real container, not the alpine stub', () => {
+    const compose = gen(
+      makeScenario([['dc-1', { category: 'domain-controller', ipAddress: '10.200.40.10' }]])
+    )
+    expect(compose.services['dc-1']).toBeDefined()
+    expect(compose.services['dc-1'].image).toBe('ghcr.io/iburres/otforge-dc:latest')
+  })
+
+  it('assigns the 256m/0.5 resource limit to domain-controller', () => {
+    const compose = gen(
+      makeScenario([['dc-1', { category: 'domain-controller', ipAddress: '10.200.40.10' }]])
+    )
+    expect(compose.services['dc-1'].deploy.resources.limits.memory).toBe('256m')
+    expect(compose.services['dc-1'].deploy.resources.limits.cpus).toBe('0.5')
+  })
+
+  it('injects AD_DOMAIN when device.domainController.domainName is set', () => {
+    const compose = gen(
+      makeScenario([
+        [
+          'dc-1',
+          {
+            category: 'domain-controller',
+            ipAddress: '10.200.40.10',
+            domainController: { domainName: 'CONTOSO.LOCAL' }
+          }
+        ]
+      ])
+    )
+    const env = compose.services['dc-1'].environment ?? []
+    expect(env).toContain('AD_DOMAIN=CONTOSO.LOCAL')
+  })
+
+  it('injects AD_NETBIOS when device.domainController.netbiosName is set', () => {
+    const compose = gen(
+      makeScenario([
+        [
+          'dc-1',
+          {
+            category: 'domain-controller',
+            ipAddress: '10.200.40.10',
+            domainController: { netbiosName: 'CONTOSO' }
+          }
+        ]
+      ])
+    )
+    const env = compose.services['dc-1'].environment ?? []
+    expect(env).toContain('AD_NETBIOS=CONTOSO')
+  })
+
+  it('injects AD_ADMIN_PASSWORD when device.domainController.adminPassword is set', () => {
+    const compose = gen(
+      makeScenario([
+        [
+          'dc-1',
+          {
+            category: 'domain-controller',
+            ipAddress: '10.200.40.10',
+            domainController: { adminPassword: 'Test123!Passw0rd' }
+          }
+        ]
+      ])
+    )
+    const env = compose.services['dc-1'].environment ?? []
+    expect(env).toContain('AD_ADMIN_PASSWORD=Test123!Passw0rd')
+  })
+
+  it('omits AD_DOMAIN/AD_NETBIOS/AD_ADMIN_PASSWORD entirely when device.domainController is unset', () => {
+    const compose = gen(
+      makeScenario([['dc-1', { category: 'domain-controller', ipAddress: '10.200.40.10' }]])
+    )
+    const env = compose.services['dc-1'].environment ?? []
+    expect(env.some(v => v.startsWith('AD_DOMAIN'))).toBe(false)
+    expect(env.some(v => v.startsWith('AD_NETBIOS'))).toBe(false)
+    expect(env.some(v => v.startsWith('AD_ADMIN_PASSWORD'))).toBe(false)
+  })
+})
+
 // ── Process unit env vars (pipeline + generator) ──────────────────────────────
 
 describe('process unit environment variable injection', () => {
