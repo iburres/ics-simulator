@@ -31,6 +31,7 @@
     "lint:fix": "eslint \"packages/*/src/**/*.{ts,tsx}\" --fix",
     "typecheck": "npm run typecheck --workspace=packages/schema && npm run typecheck --workspace=packages/app",
     "format": "prettier --write \"packages/*/src/**/*.{ts,tsx,css,json}\"",
+    "docker:clean": "docker image prune -f && docker builder prune -f",
     "prepare": "husky"
   },
   "devDependencies": {
