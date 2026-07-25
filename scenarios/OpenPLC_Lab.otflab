@@ -252,14 +252,6 @@
           "none"
         ]
       },
-      "hmi-1": {
-        "nodeId": "hmi-1",
-        "category": "hmi",
-        "ipAddress": "10.200.20.10",
-        "protocols": [
-          "modbus-tcp"
-        ]
-      },
       "workstation-1": {
         "nodeId": "workstation-1",
         "category": "engineering-workstation",

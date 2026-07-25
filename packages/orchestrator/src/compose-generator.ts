@@ -628,6 +628,22 @@ export function generateCompose(
   }
 
   for (const [nodeId, device] of Object.entries(scenario.devices.devices)) {
+    // 'hmi' and 'historian' devices.devices entries never get their own container.
+    // Every simulation already includes a real, fully-wired FUXA ('fuxa' service,
+    // port 1881 published for the Electron hmi:open window) and InfluxDB
+    // ('influxdb' service, wired into Grafana's datasource) unconditionally, in
+    // the fixed-infrastructure block below -- those are the ONLY HMI/historian
+    // instance the rest of the app ever looks at (hardcoded localhost:1881 /
+    // fixed control-net IP). A canvas node with one of these categories exists
+    // purely to represent that role visually on the topology diagram; if the
+    // scenario JSON also gives it a devices.devices entry (rather than the
+    // visual-only pattern documented in ScadaCanvas.tsx's resolveVisualOnlyDevice),
+    // creating a second container here would just be an unreachable, unconfigured
+    // duplicate wasting its full RAM budget for nothing. Found 2026-07-25 in
+    // ICS_Lab_01/OpenPLC_Lab (both fixed to the visual-only pattern in the same
+    // change) -- this guard prevents any future scenario from reintroducing it.
+    if (device.category === 'hmi' || device.category === 'historian') continue
+
     // Use a custom image if specified (for advanced scenarios), otherwise use the category default
     const image = device.dockerImage ?? DEVICE_IMAGES[device.category]
     const limits = DEVICE_LIMITS[device.category]
