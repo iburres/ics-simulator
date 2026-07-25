@@ -278,13 +278,29 @@ describe('network attachment', () => {
   })
 
   it('attaches a control-zone device to control-net', () => {
+    // 'hmi'/'historian' categories never get their own container (see the guard
+    // in compose-generator.ts's device loop) -- 'application-server' is used
+    // here instead as an equally control-zone-appropriate category that does.
     const scenario = makeScenario(
-      [['hmi-1', { category: 'hmi', ipAddress: '10.200.20.10' }]],
+      [['app-1', { category: 'application-server', ipAddress: '10.200.20.10' }]],
       [{ zone: 'control', subnet: '10.200.20.0/24', gateway: '10.200.20.1' }]
     )
     const compose = gen(scenario)
-    expect(compose.services['hmi-1'].networks).toHaveProperty('control-net')
-    expect(compose.services['hmi-1'].networks['control-net'].ipv4_address).toBe('10.200.20.10')
+    expect(compose.services['app-1'].networks).toHaveProperty('control-net')
+    expect(compose.services['app-1'].networks['control-net'].ipv4_address).toBe('10.200.20.10')
+  })
+
+  it('never creates a container for hmi/historian devices — the fixed fuxa/influxdb services already cover that role', () => {
+    const scenario = makeScenario([
+      ['hmi-1', { category: 'hmi', ipAddress: '10.200.20.10' }],
+      ['historian-1', { category: 'historian', ipAddress: '10.200.20.11' }]
+    ])
+    const compose = gen(scenario)
+    expect(compose.services['hmi-1']).toBeUndefined()
+    expect(compose.services['historian-1']).toBeUndefined()
+    // The fixed infrastructure services are still present and unaffected.
+    expect(compose.services['fuxa']).toBeDefined()
+    expect(compose.services['influxdb']).toBeDefined()
   })
 
   it('falls back to ot-net when the device IP does not match any defined segment', () => {

@@ -548,22 +548,6 @@
           "none"
         ]
       },
-      "hmi-1": {
-        "nodeId": "hmi-1",
-        "category": "hmi",
-        "ipAddress": "10.200.20.10",
-        "protocols": [
-          "modbus-tcp"
-        ]
-      },
-      "historian-1": {
-        "nodeId": "historian-1",
-        "category": "historian",
-        "ipAddress": "10.200.20.11",
-        "protocols": [
-          "none"
-        ]
-      },
       "firewall-1": {
         "nodeId": "firewall-1",
         "category": "firewall",
