@@ -1508,7 +1508,21 @@ ${deviceBlocks}
   // Loki ingests EVE JSON from Suricata and Zeek logs for querying in Grafana.
   // Port 3100 is published to the host so the Electron renderer can query the
   // Loki HTTP API directly for the native live-log panel (Phase 6).
-  volumes[`${projectName}-loki-data`] = {}
+  //
+  // Loki storage is DELIBERATELY EPHEMERAL — there is no named volume. Loki
+  // writes its WAL/index/chunks to /loki in the container's own writable layer,
+  // which is wiped every time the container is recreated (i.e. every Run
+  // Simulation). A persisted loki-data volume caused a hard-to-diagnose
+  // classroom outage: when the rolling `grafana/loki:latest` image drifted to
+  // 3.7.4 (rebuilt 2026-07-22, after Lab 04 shipped 07-17), 3.7.4 could not
+  // recover the WAL left in the old volume and hung at `/ready` = 503 forever,
+  // so Promtail could not push and every Suricata/Zeek alert silently failed to
+  // reach Grafana — presenting to students as "Suricata stopped working". A
+  // clean volume always works; the persisted one was the trap. A training SIEM
+  // has no reason to survive a restart — each run should start with a clean
+  // slate — so ephemeral storage removes the failure mode entirely. Both Lab 03
+  // and Lab 04 use this pipeline. See containers/loki/Dockerfile for the
+  // companion version pin that stops the underlying image drift.
   services['loki'] = {
     image: 'ghcr.io/iburres/loki:latest',
     pull_policy: 'if_not_present',
@@ -1521,7 +1535,8 @@ ${deviceBlocks}
     },
     environment: undefined,
     cap_add: undefined,
-    volumes: [`${projectName}-loki-data:/loki`],
+    // No volume mount — /loki is intentionally ephemeral (see comment above).
+    volumes: undefined,
     // Publish so the Electron main process can proxy Loki API queries
     ports: ['3100:3100'],
     // Healthcheck: recent grafana/loki images use a distroless base with no shell

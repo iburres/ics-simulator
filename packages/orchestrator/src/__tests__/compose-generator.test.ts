@@ -1824,9 +1824,19 @@ describe('fixed infrastructure services', () => {
     expect(compose.volumes).toHaveProperty('my-proj-suricata-logs')
     expect(compose.volumes).toHaveProperty('my-proj-zeek-logs')
     expect(compose.volumes).toHaveProperty('my-proj-influxdb-data')
-    expect(compose.volumes).toHaveProperty('my-proj-loki-data')
     expect(compose.volumes).toHaveProperty('my-proj-grafana-data')
     expect(compose.volumes).toHaveProperty('my-proj-fuxa-data')
+  })
+
+  it('does NOT create a persistent volume for Loki (storage is ephemeral by design)', () => {
+    // Loki storage is deliberately ephemeral: a persisted loki-data volume, once
+    // the rolling grafana/loki image drifted to 3.7.4, hung at /ready=503 because
+    // the new version could not recover the old WAL — silently breaking the whole
+    // Suricata/Zeek -> Grafana pipeline in class. A training SIEM starts clean each
+    // run, so Loki must have no named volume and no /loki mount. See compose-generator.ts.
+    const compose = gen(infraScenario, 'my-proj')
+    expect(compose.volumes).not.toHaveProperty('my-proj-loki-data')
+    expect(compose.services['loki'].volumes).toBeUndefined()
   })
 
   it('places infrastructure services on control-net (Level 3 — Control Center)', () => {
