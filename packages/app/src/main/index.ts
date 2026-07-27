@@ -171,6 +171,18 @@ function getProjectRoot(): string {
 }
 
 /**
+ * Sentinel dropped at the project root by the 'app:update' handler to request a
+ * `npm update` on the next launch, and consumed by scripts/apply-pending-update.mjs
+ * from `predev`. The name must stay in sync with SENTINEL in that script.
+ *
+ * The indirection exists because npm cannot safely replace node_modules/electron
+ * while Electron is running — see the long comment in the 'app:update' handler.
+ *
+ * Gitignored, so it can never trip that same handler's dirty-working-tree guard.
+ */
+const PENDING_DEP_UPDATE_FILE = '.otforge-pending-dep-update'
+
+/**
  * Runs a command via spawn(), streaming stdout+stderr to onProgress line-by-line
  * (CR→LF split, ANSI escape codes stripped) — mirrors DockerClient's internal
  * `_composePull` streaming so `git pull`/`npm install` output renders the same
@@ -705,6 +717,14 @@ function registerIPCHandlers(): void {
    * themselves. When nothing changed, a native "already up to date" dialog is shown
    * instead and the app keeps running. Progress lines are streamed to the
    * renderer over 'app:updateProgress' throughout.
+   *
+   * Dependencies are deliberately NOT updated here — this handler only writes
+   * the PENDING_DEP_UPDATE_FILE sentinel, and scripts/apply-pending-update.mjs
+   * runs the real `npm update` from `predev` on the next launch. npm replaces
+   * packages by renaming them, and Windows will not rename a file that the
+   * running process holds open, so updating node_modules/electron from inside
+   * Electron fails with EBUSY and leaves the install unbootable. See the long
+   * comment at the scheduling call below for the full incident.
    */
   ipcMain.handle('app:update', async (_e, scenario?: OTForgeScenario): Promise<AppUpdateResult> => {
     if (!is.dev) {
@@ -744,23 +764,36 @@ function registerIPCHandlers(): void {
       const { stdout: afterHead } = await execAsync('git rev-parse HEAD', { cwd: projectRoot })
       const restartRequired = beforeHead.trim() !== afterHead.trim()
 
-      // `npm update`, not `npm install`. A plain install treats an already-
-      // installed version that still satisfies its declared range as "good
-      // enough" and won't touch it, even when a newer non-breaking patch has
-      // been published upstream — confirmed live: a student hit a stale,
-      // vulnerable transitive brace-expansion left behind by repeated
-      // `npm install` runs (had to `rm -rf node_modules` to actually clear
-      // it). `npm update` re-resolves every dependency against its declared
-      // range and upgrades to the newest version that still satisfies it,
-      // fixing exactly that case without deleting anything — important since
-      // this runs from inside the already-running app; a full node_modules
-      // wipe here would try to delete the currently-executing Electron
-      // binary out from under itself. Confirmed live: reproduced the exact
-      // stale-dependency state, ran `npm update` against it, and verified
-      // both `npm audit` (0 vulnerabilities) and a full `build:win` package
-      // (electron-builder run to completion) afterward.
-      send('Updating dependencies (npm update)...')
-      await runStreamedCommand('npm', ['update'], projectRoot, send)
+      // Dependency updates are SCHEDULED here, never performed here.
+      //
+      // This handler runs inside the live Electron process, which on Windows
+      // holds open file handles on node_modules/electron/dist/electron.exe and
+      // dist/resources/default_app.asar. npm replaces a package by renaming it,
+      // and Windows refuses to rename a file with open handles, so running
+      // `npm update` from here aborts with EBUSY (errno -4082) partway through.
+      //
+      // The abort is what makes it dangerous: it left the tree structurally
+      // drifted (electron nested under packages/app/node_modules instead of
+      // hoisted to the root, with its dist/ binary gone), and since this repo
+      // has no lockfile there was no recorded good state for npm to repair
+      // against. A plain `npm install` then reported success while leaving the
+      // app unable to start. It took a full node_modules wipe to recover, and
+      // it happened to a live classroom.
+      //
+      // An earlier revision of this code ran `npm update` here on the reasoning
+      // that, unlike `rm -rf node_modules`, it "doesn't delete anything." That
+      // is not true — re-resolution replaces package directories, including
+      // electron's. The verification that passed at the time did so only
+      // because re-resolution happened to be a no-op for electron that day.
+      //
+      // So: drop a sentinel and let scripts/apply-pending-update.mjs run the
+      // actual `npm update` from `predev` on the next launch, when Electron is
+      // not running and npm is free to replace whatever it likes.
+      send('Scheduling dependency update for next startup...')
+      await writeFile(
+        pathJoin(projectRoot, PENDING_DEP_UPDATE_FILE),
+        `${new Date().toISOString()}\n`
+      )
 
       // Tracks the container image pull outcome SEPARATELY from the overall
       // source update — see AppUpdateResult.imageRefresh in packages/schema/
@@ -817,17 +850,25 @@ function registerIPCHandlers(): void {
           message: 'Update downloaded — restart required',
           detail:
             "This update changed OTForge's own code, so it needs to restart to take effect.\n\n" +
-            'Click OK, then stop this process (Ctrl+C) and run `npm run dev` again.' +
+            'Click OK, then stop this process (Ctrl+C) and run `npm run dev` again. ' +
+            'Dependency updates will be applied automatically during that startup.' +
             imageRefreshNote,
           buttons: ['OK']
         })
         app.exit(0)
       } else {
+        // Source was already current, so nothing forces a restart right now.
+        // The dependency update is still queued and will be applied on the next
+        // normal startup — deliberately NOT forcing a restart for it, since
+        // upstream patch releases are routine and interrupting a class for one
+        // would be worse than applying it whenever the app next starts.
         await dialog.showMessageBox(mainWindow!, {
           type: 'info',
           title: 'OTForge',
-          message: 'OTForge is already up to date.',
-          detail: imageRefreshNote || undefined,
+          message: 'OTForge source is already up to date.',
+          detail:
+            'Dependency updates will be checked and applied the next time you start OTForge.' +
+            imageRefreshNote,
           buttons: ['OK']
         })
       }
