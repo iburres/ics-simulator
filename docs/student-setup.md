@@ -126,7 +126,7 @@ Your lab files (`.otflab`) go in:
 | Windows | `C:\OTForge\scenarios\` |
 | macOS | `~/OTForge/scenarios/` |
 
-This folder is created automatically when you clone the repository. When your instructor releases a lab file through Canvas, save it here.
+This folder is created automatically when you clone the repository, and your instructor's lab files are already in it. When a new or updated lab is released, you get it automatically the next time you update OTForge (see **Getting Updates** below) — there's nothing to download or copy in by hand.
 
 ---
 
