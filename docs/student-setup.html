@@ -369,21 +369,16 @@ git clone https://github.com/iburres/otforge.git .</code></pre>
 <pre><code>Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser</code></pre>
   <p>Type <strong>Y</strong> when prompted.</p>
 
-  <p>Then install and launch:</p>
-<pre><code>npm install
-npm run build:packages
-npm run dev</code></pre>
+  <p>Then launch OTForge:</p>
+<pre><code>npm run dev</code></pre>
 
   <hr style="margin: 24px 0; border-style: dashed;">
 
   <p class="platform-label">macOS &mdash; Terminal (from <code>~/OTForge</code>)</p>
-<pre><code>npm install
-node node_modules/electron/install.js
-npm run build:packages
-npm run dev</code></pre>
+<pre><code>npm run dev</code></pre>
 
   <blockquote class="note">
-    <p>The <code>node node_modules/electron/install.js</code> step downloads the Electron desktop runtime (~90 MB). If the download fails or you see an Electron error later, run <code>.\fix-electron.ps1</code> (Windows) &mdash; it checks a local cache before downloading so it works on most campus networks.</p>
+    <p>That single command does everything on first run: it installs the app's dependencies, downloads the Electron desktop runtime (~90 MB), builds the packages, and launches OTForge. The first run takes a few minutes; later runs start quickly. If the Electron download is blocked by antivirus or a campus network, run <code>.\fix-electron.ps1</code> (Windows) &mdash; it checks a local cache before downloading.</p>
   </blockquote>
 
   <hr>
@@ -414,14 +409,18 @@ npm run dev</code></pre>
   <!-- ── Getting Updates ── -->
   <h2 id="updating">Getting Updates</h2>
 
-  <p>Run these two commands from your OTForge folder &mdash; same on Windows and macOS:</p>
-<pre><code>git pull
-npm run dev</code></pre>
-  <p><code>git pull</code> downloads the latest code. <code>npm run dev</code> rebuilds and relaunches automatically &mdash; nothing else needed.</p>
+  <p><strong>The easiest way is the in-app button.</strong> With OTForge open and a lab loaded, click <strong>Update OTForge</strong> in the toolbar. It pulls the latest code, updates dependencies, and refreshes the Docker container images for your lab &mdash; all in one step. Open a lab first: image refresh only happens when a scenario is loaded, so clicking it on an empty screen updates the code but not the containers.</p>
+
+  <p>When the update changes OTForge's own code, it will ask you to restart. Stop the app (close the window, or press <strong>Ctrl+C</strong> in the terminal) and run <code>npm run dev</code> again &mdash; any queued dependency updates are applied automatically during that startup.</p>
 
   <blockquote class="note">
-    <p><strong>If your instructor announces that new packages were added</strong>, run <code>.\get-updates.ps1</code> (Windows) or <code>bash get-updates.sh</code> (macOS) instead of <code>git pull</code>. This is rare &mdash; most updates are source-code only and need nothing more than <code>git pull</code>.</p>
+    <p><strong>Why the button matters:</strong> a plain <code>git pull</code> only updates source code. It does <strong>not</strong> refresh the Docker container images, so attack scripts or services added in a new lab can appear &ldquo;missing&rdquo; until the images are refreshed. The <strong>Update OTForge</strong> button handles both.</p>
   </blockquote>
+
+  <p><strong>Code-only refresh (fallback).</strong> If you just want the latest source without touching containers, run these from your OTForge folder &mdash; same on Windows and macOS:</p>
+<pre><code>git pull
+npm run dev</code></pre>
+  <p><code>git pull</code> downloads the latest code, and <code>npm run dev</code> installs any new dependencies, repairs the Electron runtime if needed, and relaunches the app.</p>
 
   <hr>
 
@@ -450,8 +449,8 @@ npm run dev</code></pre>
   <p>If none of the above work, restart your computer and relaunch Docker Desktop. A full reboot clears stuck WSL instances and stalled service states.</p>
 
   <h3><code>npm run dev</code> fails &mdash; Electron not installed (macOS)</h3>
-<pre><code>node node_modules/electron/install.js
-npm run dev</code></pre>
+  <p><code>npm run dev</code> repairs a missing Electron runtime automatically on startup, so running it again is usually enough:</p>
+<pre><code>npm run dev</code></pre>
 
   <h3><code>npm run dev</code> fails &mdash; Electron not installed (Windows)</h3>
   <p><code>npm run dev</code> already tries to fix this automatically, but if your antivirus or campus network blocks the direct download from GitHub, it can still fail. Run the included repair script from <code>C:\OTForge</code>:</p>
@@ -530,7 +529,7 @@ npm run dev</code></pre>
         <tr><td>Navigate to OTForge</td><td><code>cd C:\OTForge</code></td><td><code>cd ~/OTForge</code></td></tr>
         <tr><td>Launch OTForge</td><td><code>npm run dev</code></td><td><code>npm run dev</code></td></tr>
         <tr><td>Scenarios folder</td><td><code>C:\OTForge\scenarios\</code></td><td><code>~/OTForge/scenarios/</code></td></tr>
-        <tr><td>Get updates</td><td><code>git pull</code> then <code>npm run dev</code></td><td><code>git pull</code> then <code>npm run dev</code></td></tr>
+        <tr><td>Get updates</td><td><strong>Update OTForge</strong> button (lab loaded)</td><td><strong>Update OTForge</strong> button (lab loaded)</td></tr>
       </tbody>
     </table>
   </div>

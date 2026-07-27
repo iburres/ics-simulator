@@ -97,10 +97,8 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 Type **Y** when prompted.
 
-Then install and launch:
+Then launch OTForge:
 ```powershell
-npm install
-npm run build:packages
 npm run dev
 ```
 
@@ -108,11 +106,12 @@ npm run dev
 
 **macOS (Terminal — from `~/OTForge`):**
 ```bash
-npm install
 npm run dev
 ```
 
 ---
+
+That single command does everything: the first time you run it, it installs the app's dependencies, downloads the Electron runtime, builds the packages, and then launches OTForge. The first run takes a few minutes; later runs start quickly.
 
 OTForge will open. The first time you run a scenario and click **Start Simulation**, Docker will pull the required container images (~2–4 GB one-time download). This takes several minutes — subsequent launches are fast.
 
@@ -133,14 +132,20 @@ This folder is created automatically when you clone the repository. When your in
 
 ## Getting Updates
 
-Run these two commands from your OTForge folder — same on Windows and macOS:
+**The easiest way is the in-app button.** With OTForge open and a lab loaded, click **Update OTForge** in the toolbar. It pulls the latest code, updates dependencies, and refreshes the Docker container images for your lab — all in one step. Open a lab first: image refresh only happens when a scenario is loaded, so clicking it on an empty screen updates the code but not the containers.
+
+When the update changes OTForge's own code, it will ask you to restart. Stop the app (close the window, or press **Ctrl+C** in the terminal) and run `npm run dev` again — any queued dependency updates are applied automatically during that startup.
+
+> **Why the button matters:** a plain `git pull` only updates source code. It does **not** refresh the Docker container images, so attack scripts or services added in a new lab can appear "missing" until the images are refreshed. The **Update OTForge** button handles both.
+
+**Code-only refresh (fallback).** If you just want the latest source without touching containers, run these from your OTForge folder — same on Windows and macOS:
 
 ```
 git pull
 npm run dev
 ```
 
-That's it. `git pull` downloads the latest code and `npm run dev` installs any new dependencies and relaunches the app automatically.
+`git pull` downloads the latest code, and `npm run dev` installs any new dependencies, repairs the Electron runtime if needed, and relaunches the app.
 
 ---
 
@@ -167,10 +172,11 @@ If the spinner still does not clear:
 If none of the above work, restart your computer and relaunch Docker Desktop. A full reboot clears stuck WSL instances and stalled service states.
 
 ### `npm run dev` fails — Electron not installed
+`npm run dev` repairs a missing Electron runtime automatically on startup, so running it again is usually enough:
 ```
-npm install
 npm run dev
 ```
+If it still fails, your antivirus or campus network may be blocking the Electron download — see the next entry.
 
 ### `Error: Electron uninstall` (Windows)
 `npm run dev` already tries to fix this automatically, but if your antivirus or campus network blocks the direct download from GitHub, it can still fail. Run the included repair script from `C:\OTForge`:
@@ -231,7 +237,7 @@ New-NetFirewallRule `
 | Navigate to OTForge | `cd C:\OTForge` | `cd ~/OTForge` |
 | Launch OTForge | `npm run dev` | `npm run dev` |
 | Scenarios folder | `C:\OTForge\scenarios\` | `~/OTForge/scenarios/` |
-| Get updates | `git pull` then `npm run dev` | `git pull` then `npm run dev` |
+| Get updates | **Update OTForge** button (lab loaded) | **Update OTForge** button (lab loaded) |
 
 
 ---

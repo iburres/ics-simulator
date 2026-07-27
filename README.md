@@ -136,11 +136,10 @@ Real protocol packets flow on Docker virtual networks — scanner tools and expl
 ```bash
 git clone https://github.com/iburres/otforge.git
 cd otforge
-npm install
-node node_modules/electron/install.js   # macOS only — downloads the Electron binary
-npm run build:packages
 npm run dev
 ```
+
+`npm run dev` handles the rest on first run — it installs dependencies, downloads the Electron runtime, builds the packages, and launches the app. (On Windows, first allow scripts once with `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`.)
 
 Docker Desktop must be running before launching the app.
 
@@ -151,6 +150,12 @@ Docker Desktop must be running before launching the app.
 > **[View Student Setup Guide (browser)](https://iburres.github.io/otforge/student-setup.html)** &nbsp;|&nbsp; [Markdown source](docs/student-setup.md)
 
 ### Getting updates
+
+**Preferred — the in-app button.** With a lab loaded, click **Update OTForge** in the toolbar. It pulls the latest code, updates dependencies, and refreshes the Docker container images for the loaded scenario in one step. A plain `git pull` updates source only and does **not** refresh container images, so services or attack scripts added in a new lab can appear missing until the images are refreshed — the button handles both. Image refresh only runs when a scenario is loaded, so open a lab before clicking.
+
+If the update changes OTForge's own code it will ask you to restart: stop the app and run `npm run dev` again — any queued dependency update is applied automatically during that startup, while Electron is not running.
+
+**Code-only fallback:**
 
 **Windows (PowerShell in `C:\OTForge`):**
 ```powershell
