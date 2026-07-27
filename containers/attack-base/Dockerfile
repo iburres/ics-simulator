@@ -91,6 +91,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # python3-impacket: SMB/DCOM attacks on Windows HMI/historian hosts
 # ike-scan: IKE/ISAKMP VPN enumeration (common in ICS DMZ)
 # python3-construct + python3-crcmod: helpers for custom ICS protocol scripts
+# openssh-client: the SSH pivot in Lab 04 (TRITON/TRISIS) runs `ssh` and an
+#   `ssh -L` local port-forward FROM this Kali box THROUGH the compromised
+#   camera to the SIS. This MUST be installed explicitly: `ssh` used to be
+#   present only transitively via the rolling `kali-rolling` base, and a base
+#   rebuild silently dropped it (2026-07-27) — breaking Lab 04 step 4 with
+#   "bash: ssh: command not found". Never rely on the rolling base to carry a
+#   tool a lab depends on; pin it here where the dependency is explicit.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
     python3-impacket \
@@ -98,6 +105,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-construct python3-crcmod \
     python3-scapy \
     netcat-traditional curl wget \
+    openssh-client \
     git vim nano \
     && rm -rf /var/lib/apt/lists/*
 
