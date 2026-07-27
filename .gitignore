@@ -38,3 +38,7 @@ resources.pak
 # against a containers/*/server.py while testing.
 __pycache__/
 *.pyc
+# Sentinel written by the "Update OTForge" button to request a `npm update` on
+# the next launch (applied by scripts/apply-pending-update.mjs from `predev`).
+# Must stay untracked so it never trips the update handler's own dirty-tree guard.
+.otforge-pending-dep-update
